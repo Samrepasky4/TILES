@@ -8,7 +8,6 @@ var controlInterface = null;
 var controlIn = null;
 var controlOut = null;
 var receiveBuffer = "";
-var commandQueue = Promise.resolve();
 async function listUsbDevices() {
 	return (await usb.getDevices()).map((device) => ({
 		vendorId: device.vendorId,
@@ -59,9 +58,7 @@ async function disconnectUsbDevice() {
 		await activeDevice.close();
 	} catch {}
 	activeDevice = null;
-	controlInterface = null;
-	controlIn = null;
-	controlOut = null;
+	controlInterface = controlIn = controlOut = null;
 	receiveBuffer = "";
 	return { connected: false };
 }
@@ -78,12 +75,7 @@ async function readLine() {
 	receiveBuffer = receiveBuffer.slice(index + 1);
 	return line;
 }
-function sendTilesCommand(command, multiLine = false) {
-	const result = commandQueue.then(() => sendTilesCommandNow(command, multiLine));
-	commandQueue = result.then(() => void 0, () => void 0);
-	return result;
-}
-async function sendTilesCommandNow(command, multiLine = false) {
+async function sendTilesCommand(command, multiLine = false) {
 	if (!activeDevice || controlOut === null) throw new Error("TILES is not connected");
 	console.log(`→ TILES: ${command}`);
 	const write = await activeDevice.transferOut(controlOut, new TextEncoder().encode(`${command}\n`));
