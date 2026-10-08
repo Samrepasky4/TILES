@@ -1,6 +1,46 @@
 import { usb } from 'usb'
 
-type UsbDevice = NonNullable<Awaited<ReturnType<typeof usb.findDeviceByIds>>>
+type UsbDevice = {
+  vendorId: number
+  productId: number
+  productName?: string | null
+  manufacturerName?: string | null
+  serialNumber?: string | null
+  configuration?: {
+    interfaces: {
+      interfaceNumber: number
+      alternate: {
+        interfaceClass: number
+        interfaceName?: string | null
+        endpoints: {
+          direction: 'in' | 'out'
+          endpointNumber: number
+        }[]
+      }
+    }[]
+  } | null
+
+  open(): Promise<void>
+  close(): Promise<void>
+  claimInterface(interfaceNumber: number): Promise<void>
+  releaseInterface(interfaceNumber: number): Promise<void>
+
+  transferIn(
+    endpointNumber: number,
+    length: number,
+  ): Promise<{
+    data?: DataView
+    status: 'ok' | 'stall' | 'babble'
+  }>
+
+  transferOut(
+    endpointNumber: number,
+    data: BufferSource,
+  ): Promise<{
+    bytesWritten?: number
+    status: 'ok' | 'stall'
+  }>
+}
 
 export type UsbDeviceInfo = {
   vendorId: number
@@ -16,6 +56,9 @@ let controlIn: number | null = null
 let controlOut: number | null = null
 let receiveBuffer = ''
 
+// Only allow one TILES request/response transaction at a time.
+let commandQueue: Promise<void> = Promise.resolve()
+
 export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
   return (await usb.getDevices()).map(device => ({
     vendorId: device.vendorId,
@@ -26,17 +69,26 @@ export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
   }))
 }
 
-export async function connectUsbDevice(vendorId: number, productId: number) {
+export async function connectUsbDevice(
+  vendorId: number,
+  productId: number,
+) {
   await disconnectUsbDevice()
 
   const device = await usb.findDeviceByIds(vendorId, productId)
-  if (!device) throw new Error(`USB device ${hex(vendorId)}:${hex(productId)} not found`)
+
+  if (!device) {
+    throw new Error(
+      `USB device ${hex(vendorId)}:${hex(productId)} not found`,
+    )
+  }
 
   await device.open()
 
   const iface = device.configuration?.interfaces.find(
-    i => i.alternate.interfaceClass === 0xff &&
-         i.alternate.interfaceName === 'SENTIA TILES Control',
+    i =>
+      i.alternate.interfaceClass === 0xff &&
+      i.alternate.interfaceName === 'SENTIA TILES Control',
   )
 
   if (!iface) {
@@ -44,8 +96,13 @@ export async function connectUsbDevice(vendorId: number, productId: number) {
     throw new Error('SENTIA TILES Control interface not found')
   }
 
-  const out = iface.alternate.endpoints.find(e => e.direction === 'out')
-  const input = iface.alternate.endpoints.find(e => e.direction === 'in')
+  const out = iface.alternate.endpoints.find(
+    e => e.direction === 'out',
+  )
+
+  const input = iface.alternate.endpoints.find(
+    e => e.direction === 'in',
+  )
 
   if (!out || !input) {
     await device.close()
@@ -78,25 +135,34 @@ export async function connectUsbDevice(vendorId: number, productId: number) {
 export async function disconnectUsbDevice() {
   if (activeDevice) {
     try {
-      if (controlInterface !== null) await activeDevice.releaseInterface(controlInterface)
+      if (controlInterface !== null) {
+        await activeDevice.releaseInterface(controlInterface)
+      }
+
       await activeDevice.close()
     } catch {}
   }
 
   activeDevice = null
-  controlInterface = controlIn = controlOut = null
+  controlInterface = null
+  controlIn = null
+  controlOut = null
   receiveBuffer = ''
 
   return { connected: false }
 }
 
 async function readLine(): Promise<string> {
-  if (!activeDevice || controlIn === null) throw new Error('TILES is not connected')
+  if (!activeDevice || controlIn === null) {
+    throw new Error('TILES is not connected')
+  }
 
   while (!receiveBuffer.includes('\n')) {
     const result = await activeDevice.transferIn(controlIn, 64)
-    if (result.status !== 'ok' || !result.data)
+
+    if (result.status !== 'ok' || !result.data) {
       throw new Error(`USB read failed: ${result.status}`)
+    }
 
     const data = new Uint8Array(
       result.data.buffer,
@@ -108,13 +174,50 @@ async function readLine(): Promise<string> {
   }
 
   const index = receiveBuffer.indexOf('\n')
-  const line = receiveBuffer.slice(0, index).replace(/\r$/, '')
+
+  const line = receiveBuffer
+    .slice(0, index)
+    .replace(/\r$/, '')
+
   receiveBuffer = receiveBuffer.slice(index + 1)
+
   return line
 }
 
-export async function sendTilesCommand(command: string, multiLine = false): Promise<string[]> {
-  if (!activeDevice || controlOut === null) throw new Error('TILES is not connected')
+/*
+ * Public function.
+ *
+ * Every call gets placed behind the previous command so two React
+ * components can never talk to the USB endpoint at the same time.
+ */
+export function sendTilesCommand(
+  command: string,
+  multiLine = false,
+): Promise<string[]> {
+  const result = commandQueue.then(() =>
+    sendTilesCommandNow(command, multiLine),
+  )
+
+  // Keep the queue alive even if one command fails.
+  commandQueue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+
+  return result
+}
+
+/*
+ * Actually performs one complete USB request/response transaction.
+ * This function is only called by the queue above.
+ */
+async function sendTilesCommandNow(
+  command: string,
+  multiLine = false,
+): Promise<string[]> {
+  if (!activeDevice || controlOut === null) {
+    throw new Error('TILES is not connected')
+  }
 
   console.log(`→ TILES: ${command}`)
 
@@ -123,19 +226,26 @@ export async function sendTilesCommand(command: string, multiLine = false): Prom
     new TextEncoder().encode(`${command}\n`),
   )
 
-  if (write.status !== 'ok') throw new Error(`USB write failed: ${write.status}`)
+  if (write.status !== 'ok') {
+    throw new Error(`USB write failed: ${write.status}`)
+  }
 
   const lines: string[] = []
 
   while (true) {
     const line = await readLine()
+
     console.log(`← TILES: ${line}`)
 
-    if (multiLine && line === 'OK') return lines
+    if (multiLine && line === 'OK') {
+      return lines
+    }
 
     lines.push(line)
 
-    if (!multiLine || line.startsWith('ERR ')) return lines
+    if (!multiLine || line.startsWith('ERR ')) {
+      return lines
+    }
   }
 }
 
