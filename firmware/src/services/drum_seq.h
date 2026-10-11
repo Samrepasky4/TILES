@@ -15,8 +15,10 @@
  *                 from where it got to on release. Nothing is recorded.
  *   columns 5-6   8 drums (C1-G1 in Live's names on the first bank). Tap:
  *                 select (its steps show on the left). Push: play it, with
- *                 the strike's velocity. Circle + hold 1 s: clear its
- *                 steps; on to 3 s: clear the whole pattern.
+ *                 the strike's velocity. A finger resting on a drum (not
+ *                 pushing) feels a strong kick on each of its steps as the
+ *                 pattern plays. Circle + hold 1 s: clear its steps; on to
+ *                 3 s: clear the whole pattern.
  *   circle + triangle  the other page (steps 17-32). Anything on page 2
  *                 makes the pattern 32 steps; an empty page 2, 16. (Drums
  *                 follow no scale, so this isn't the scale picker here.)

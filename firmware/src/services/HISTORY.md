@@ -9552,3 +9552,9 @@ change. Search it by file or feature name.
   it at once while the pattern runs on silently (`muted` = slip), and on
   release it plays on from wherever it has got to. The playhead keeps
   moving on the grid during the roll; the rolled step shows white.
+- **Feel a drum's steps (0.3.6, 2026-10-11).** Real feedback: "when touch
+  a drum pad without pressing or triggering the sound, make it so theres a
+  strong haptic kick to indicate the active steps, so every active step
+  give a kick." A drum pad that's touched but not pushed gets a 127-velocity
+  kick each time its drum plays (sequenced steps and step rolls), stopped
+  at 50 ms (kick 45 ms + gap, before the sustain would start).

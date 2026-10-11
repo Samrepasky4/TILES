@@ -27,6 +27,12 @@
 #define DRUM_CLEAR_FLASH_MS 400u
 /* How long a drum pad flashes white when its drum plays. First guess. */
 #define DRUM_FIRE_FLASH_MS 90u
+/* A finger resting on a drum pad (touching, not pushed) feels that drum's
+ * steps: a full-strength kick on each, cut after DRUM_FEEL_KICK_MS (the
+ * kick is 45 ms, then an 8 ms gap, haptics.c) so it never turns into a
+ * sustain buzz. */
+#define DRUM_FEEL_KICK_VELOCITY 127u
+#define DRUM_FEEL_KICK_MS 50u
 /* Step rolls (circle + a step): 1 hit per step (a step repeat), then 2, 3,
  * 4 as the depth passes these raw Hall depths (first guesses). Every hit
  * is at the step velocity (pressure sets the rate only). */
@@ -88,6 +94,7 @@ static uint8_t s_drum_clear_stage[TILES_DRUM_VOICES]; /* 0, 1 = part cleared, 2 
 static uint32_t s_drum_cleared_ms[TILES_DRUM_VOICES];
 static uint32_t s_drum_fired_ms[TILES_DRUM_VOICES];
 static bool s_drum_fired_any[TILES_DRUM_VOICES];
+static uint32_t s_feel_stop_ms[TILES_DRUM_VOICES]; /* 0 = no resting-finger kick to end */
 static uint32_t s_all_cleared_ms;
 
 /* Saving (see DRUM_SAVE_QUIET_MS). */
@@ -110,10 +117,17 @@ static uint32_t now_ms(void) {
 static void out_note_on(uint8_t note, uint8_t velocity, void *ctx) {
     (void)ctx;
     tiles_midi_note_on(TILES_MIDI_CH_DRUMS, note, velocity);
+    uint32_t now = now_ms();
     for (uint8_t v = 0; v < TILES_DRUM_VOICES; v++) {
         if (tiles_drum_note(s_bank, v) == note) {
-            s_drum_fired_ms[v] = now_ms();
+            s_drum_fired_ms[v] = now;
             s_drum_fired_any[v] = true;
+            /* A finger resting on this drum feels its step. */
+            uint8_t pad = tiles_drum_pad_for_voice(v);
+            if (s_shown && !s_drum_sounding[v] && tiles_touch_is_touched(pad)) {
+                tiles_haptics_trigger_kick(pad, DRUM_FEEL_KICK_VELOCITY);
+                s_feel_stop_ms[v] = (now + DRUM_FEEL_KICK_MS) | 1u;
+            }
         }
     }
     /* The selected drum's hits pulse their step pad, so a finger resting on
@@ -263,6 +277,17 @@ void tiles_drum_seq_advance(tiles_midi_clock_state_t clock, bool shown) {
         resync_touches();
     }
     s_shown = shown;
+    /* End resting-finger kicks before they reach their sustain. A pad pushed
+     * meanwhile owns its haptic (drum_hit()). */
+    uint32_t now = now_ms();
+    for (uint8_t v = 0; v < TILES_DRUM_VOICES; v++) {
+        if (s_feel_stop_ms[v] != 0u && (int32_t)(now - s_feel_stop_ms[v]) >= 0) {
+            if (!s_drum_sounding[v]) {
+                tiles_haptics_stop(tiles_drum_pad_for_voice(v));
+            }
+            s_feel_stop_ms[v] = 0u;
+        }
+    }
     s_pulse = clock.pulse_count;
     s_clock_running = clock.running;
     uint32_t started = s_player.step_started_pulse;
