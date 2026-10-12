@@ -44,6 +44,7 @@
 #include "services/octave_control.h"
 #include "services/op_mode.h"
 #include "services/pedal.h"
+#include "services/play_state.h"
 #include "services/power.h"
 #include "services/standby.h"
 #include "services/touch.h"
@@ -121,6 +122,10 @@ int main(void) {
     /* Scale/octave/key (kept across a crash reboot). Before octave control,
      * its first user. */
     tiles_note_map_init(crash_recovered);
+
+    /* ...and across a power cycle: the saved scale/key/octave go back into
+     * note_map now, the saved mode at op_mode init. */
+    tiles_play_state_init(tiles_storage_state_region_safe() ? tiles_storage_state_ops() : NULL, crash_recovered);
 
     /* "-"/"+": octave shift (claims their LEDs; needs buttons init). */
     tiles_octave_control_init();

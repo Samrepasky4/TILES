@@ -38,6 +38,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/storage test/test_kv_store.c src/stor
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/storage test/test_log_store.c src/storage/log_store.c src/storage/kv_store.c -o /tmp/sentia_tiles_test_log_store
 /tmp/sentia_tiles_test_log_store
 
+# Mode, scale, key and octave across a power cycle (on the log above, into the real note map).
+cc -std=c11 -Wall -Wextra -Wpedantic -Itest/stubs -Isrc/storage -Isrc/services -Isrc/board test/test_play_state.c src/services/play_state.c src/services/note_map.c src/board/pad_config.c src/storage/log_store.c src/storage/kv_store.c -o /tmp/sentia_tiles_test_play_state
+/tmp/sentia_tiles_test_play_state
+
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/profiles -Isrc/storage test/test_settings.c src/profiles/settings.c src/profiles/settings_persist.c src/storage/kv_store.c -lm -o /tmp/sentia_tiles_test_settings
 /tmp/sentia_tiles_test_settings
 

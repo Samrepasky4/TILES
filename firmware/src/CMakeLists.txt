@@ -34,6 +34,7 @@ add_executable(sentia_tiles_firmware
     services/midi_clock.c
     services/op_mode.c
     services/drum_seq.c
+    services/play_state.c
     services/drum_pattern.c
     services/debug_mode.c
     services/crash_indicator.c

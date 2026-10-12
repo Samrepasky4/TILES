@@ -9558,3 +9558,35 @@ change. Search it by file or feature name.
   give a kick." A drum pad that's touched but not pushed gets a 127-velocity
   kick each time its drum plays (sequenced steps and step rolls), stopped
   at 50 ms (kick 45 ms + gap, before the sustain would start).
+- **Device bug fixes: resting finger, power-cycle memory, settings
+  protocol (0.3.7, 2026-10-12).** Asked "what could we fix in bugs on the
+  device?", the user picked three:
+  1. *A pad replaying under a resting finger* (pinned since earlier
+     traces). A resting finger's capacitive touch flickers for longer than
+     `TOUCH_DROPOUT_GRACE_MS` (12 ms; the same flicker behind the harmonics
+     ghost plucks above). The note ended, and on re-touch
+     `begin_awaiting_strike()` read the still-pressed key as an instant hard
+     strike: note-off, a fresh max-velocity note-on and a haptic kick, with
+     no movement at all. Now a note whose key the Hall still reads as
+     pressed outlives a dropout for up to `PRESSED_DROPOUT_GRACE_MS`
+     (300 ms), and a touch that starts with the key pressed is an instant
+     strike only if the key was at rest within `STRIKE_FROM_REST_MS`
+     (150 ms); otherwise the pad waits silently (`awaiting_rest`) for the
+     key to come up, then detects a strike as usual. A re-touch within
+     `TOUCH_PULSE_MIN_GAP_MS` (60 ms) gets no second touch tick. All first
+     guesses; not yet measured on hardware.
+  2. *Scale, key, octave and mode forgotten at power-off.* They lived only
+     in `__uninitialized_ram`. New `play_state`: saved ~2 s after a change
+     with the pads idle, through `storage/log_store` in its own two
+     sectors (one page per save; an erase waits for the clock to stop),
+     restored at power-up (a crash reboot still keeps RAM's values). INFO
+     `state.*`. Running sequencer lanes are deliberately not restored.
+  3. *The companion app's concurrent GETs.* `useTilesSettings` fires every
+     GET at once and each call read the USB endpoint itself, so replies
+     went to whichever call read first (a GET could show another key's
+     value). The device side was already strict (one command at a time,
+     the rest waiting in TinyUSB's FIFO); the protocol gained optional
+     request tags (`@<tag> CMD`, every reply line echoes the tag) so a
+     host can match lines to requests and skip leftovers from an earlier
+     session, and `companion-app/src/main/usb.ts` now queues commands and
+     tags each one, falling back to plain commands on older firmware.

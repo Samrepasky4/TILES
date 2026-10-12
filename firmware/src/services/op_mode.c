@@ -18,6 +18,7 @@
 #include "midi_out.h"
 #include "note_map.h"
 #include "octave_control.h"
+#include "play_state.h"
 #include "product_identity.h"
 #include "standby.h"
 #include "storage_flash.h"
@@ -3041,6 +3042,12 @@ void tiles_op_mode_init(bool crash_recovered) {
     /* Register the melodic echo's note callback. */
     melodic_echo_init();
 
+    /* Fresh boot: the mode from before power-off (services/play_state.c). */
+    uint8_t saved_mode;
+    if (!crash_recovered && tiles_play_state_boot_mode(&saved_mode) && saved_mode <= (uint8_t)OP_MODE_DRUM) {
+        set_active_mode((tiles_op_mode_t)saved_mode);
+    }
+
     if (crash_recovered) {
         /* Crash recovery: mode, patterns per lane and running lanes survived in
          * __uninitialized_ram. Re-running set_active_mode() with the same mode
@@ -3141,6 +3148,8 @@ void tiles_op_mode_scan(void) {
     tiles_drum_seq_advance(clock, s_active_mode == OP_MODE_DRUM && !s_menu_visible && !s_scale_menu_visible);
     /* Right after the advance: it saves just after a step starts. */
     tiles_drum_seq_persist_service(now_ms, clock.running);
+    /* Mode, scale, key and octave, for the next power-up. */
+    tiles_play_state_service(now_ms, (uint8_t)s_active_mode, clock.running, !any_pad_touched());
 
     if (s_menu_visible) {
         handle_menu_taps();

@@ -68,17 +68,38 @@ Errors: `bad-value` = not parseable as the setting's type (`1.5x`, `true` for a
 bool); `out-of-range` = parsed but outside the setting's range, or an unknown
 enum name. A value never partially applies.
 
-No sequence IDs, no binary framing, no capability negotiation -- a
-command is answered by exactly the response(s) it produces, in order,
-before the next command is read (the device won't start the next command until
-the previous response has been fully sent). Good enough for occasional, human-
-or script-driven settings changes; genuinely insufficient for high-rate
-telemetry (live sensor streaming) or anything needing to stay correct
-under request/response interleaving -- both explicitly deferred to
-whatever protocol version eventually covers that. Replies can be long (SCHEMA is
+No binary framing, no capability negotiation -- a command is answered by
+exactly the response(s) it produces, in order, before the next command is
+read (the device won't start the next command until the previous response
+has been fully sent). Good enough for occasional, human- or script-driven
+settings changes; genuinely insufficient for high-rate telemetry (live sensor
+streaming), deferred to whatever protocol version eventually covers that.
+Replies can be long (SCHEMA is
 ~5 KB; LIST, SCHEMA, SCALES and CONTENT LIST are streamed, so they have no
 size limit) and arrive across many 64-byte USB packets: **read lines, not
 packets**, and read until the final `OK` (or an `ERR` line).
+
+### Request tags (firmware 0.3.7+)
+
+A command may start with a tag, `@` plus 1-16 of `A-Z a-z 0-9 _ -`, and a
+space. Every line of its reply then starts with the same tag:
+
+```
+@7 GET pedal.mode\n      ->  @7 sustain
+@8 LIST\n                ->  @8 pedal.mode=sustain  ...  @8 OK
+@9\n                     ->  @9 ERR missing-command
+@a+b GET x\n             ->  ERR bad-tag   (untagged: the tag couldn't be read)
+```
+
+Untagged commands are answered untagged, exactly as before. Tags let a host
+match every line to its request and skip lines that aren't its answer --
+for instance the rest of a long reply that was still streaming when the
+previous app quit (the device can't tell the interface was released, so
+those lines wait for the next reader). Replies still come in command order;
+a host that reads from several places at once should still send one command
+at a time (the companion app queues them: `companion-app/src/main/usb.ts`).
+Firmware before 0.3.7 answers a tagged command `ERR unknown-command`,
+untagged; a host can fall back to plain commands on that.
 
 ### REBOOT
 
@@ -286,7 +307,10 @@ last_result, pending, failures); the content store's
 `content.records`, `content.bytes=<used>/<capacity>`, `content.writes`,
 `content.last_result`; main-loop timing `loop.avg_us`, `loop.max_us` (last
 second) and `loop.max_ever_us`; drum mode's store `drums.storage`,
-`drums.saved_bytes`, `drums.saves`, `drums.pending`. New keys may be added;
+`drums.saved_bytes`, `drums.saves`, `drums.pending`; the play state (mode,
+scale, key, octave kept across power cycles) `state.storage`,
+`state.saved=mode:<n> scale:<n> octave:<n> key:<n>` (once something is
+saved), `state.saves`, `state.pending`. New keys may be added;
 ignore ones you don't know.
 
 ## Persistence

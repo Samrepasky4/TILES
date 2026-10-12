@@ -43,6 +43,31 @@ static bool s_harmonics_enabled = true;
  * (the MPR121 release threshold was tuned for that). Unmeasured. */
 #define TOUCH_DROPOUT_GRACE_MS 12u
 
+/* A resting finger's touch can drop out for longer than that. Two rules
+ * keep it from replaying the note (the key is still down, so the re-touch
+ * read as a new hard strike: a note-off, a fresh note-on and a kick under
+ * a finger that never moved):
+ *   - A sounding note whose key the Hall still reads as pressed (depth >=
+ *     MIN_STRIKE_DEPTH_DELTA) outlives a dropout for up to
+ *     PRESSED_DROPOUT_GRACE_MS. A key that comes up ends it at once, so real
+ *     releases stay snappy; the limit stops a key held down without a
+ *     finger from hanging the note.
+ *   - A touch that begins with the key already pressed is an instant
+ *     strike (a hard hit can bottom out before touch registers) only if
+ *     the key was at rest (<= RETRIGGER_ARM_DEPTH_DELTA) within
+ *     STRIKE_FROM_REST_MS. Otherwise the finger never left: the pad waits,
+ *     silent and without a touch tick, for the key to come up near rest,
+ *     then detects a strike as usual.
+ * Both first guesses: the dropouts aren't measured; a hard hit's touch lag
+ * is a few tens of ms at most. */
+#define PRESSED_DROPOUT_GRACE_MS 300u
+#define STRIKE_FROM_REST_MS 150u
+
+/* A touch that comes back within this gap gets no new touch tick (the
+ * haptic pulse on touch-down): it's the same finger flickering. First
+ * guess, under the lift of a fast repeated tap. */
+#define TOUCH_PULSE_MIN_GAP_MS 60u
+
 /* Depth travel since touch-down that makes it a press (and the point where
  * velocity measurement starts). A touch that never gets here plays
  * nothing, like a key that's touched but not pressed. 150 sits in the gap
@@ -322,6 +347,13 @@ typedef struct {
      * first touch. */
     uint32_t last_touched_ms;
     bool last_touched_valid;
+
+    /* Last scan the key read at rest (<= RETRIGGER_ARM_DEPTH_DELTA), for
+     * STRIKE_FROM_REST_MS. */
+    uint32_t last_rest_ms;
+    /* AWAITING_STRIKE that began with the key already pressed and no recent
+     * rest: waiting for the key to come up before detecting a strike. */
+    bool awaiting_rest;
 
     /* This note's channel: a Member Channel with MPE on, the Master Channel
      * (ch 1) with MPE off. Valid in PAD_STATE_NOTE_ON. */
@@ -1192,10 +1224,12 @@ static void begin_awaiting_strike(pad_expr_t *s, uint8_t pad, uint32_t now_ms) {
     s->last_seen_sample_time_ms = 0;
 
     /* Check the first reading immediately: a hard hit can be fully pressed
-     * before touch registers, and that's an instant, maximum-speed strike. */
+     * before touch registers, and that's an instant, maximum-speed strike --
+     * unless the key hasn't been at rest lately (STRIKE_FROM_REST_MS). */
     float initial_depth = (float)tiles_hall_get_depth(pad);
     s->peak_depth = initial_depth;
-    s->threshold_crossed = (initial_depth >= MIN_STRIKE_DEPTH_DELTA);
+    s->awaiting_rest = initial_depth >= MIN_STRIKE_DEPTH_DELTA && (now_ms - s->last_rest_ms) > STRIKE_FROM_REST_MS;
+    s->threshold_crossed = !s->awaiting_rest && initial_depth >= MIN_STRIKE_DEPTH_DELTA;
     s->strike_time_ms = 0;
 }
 
@@ -1492,12 +1526,18 @@ void tiles_expression_scan(void) {
         pad_expr_t *s = &s_pads[i];
 
         bool raw_touched = tiles_touch_is_touched(pad);
+        /* Untouched this long before this scan (UINT32_MAX: never touched). */
+        uint32_t touch_gap_ms = s->last_touched_valid ? now_ms - s->last_touched_ms : UINT32_MAX;
         if (raw_touched) {
             s->last_touched_ms = now_ms;
             s->last_touched_valid = true;
         }
         /* Dropout-bridged touch (a raw touch always reads true here). */
         bool touched = pad_touch_bridged(s, now_ms);
+        float depth_now = (float)tiles_hall_get_depth(pad);
+        if (depth_now <= RETRIGGER_ARM_DEPTH_DELTA) {
+            s->last_rest_ms = now_ms;
+        }
 
         if (s->state == PAD_STATE_STOLEN) {
             /* Stolen pad: silent until a real release, then IDLE. */
@@ -1515,8 +1555,22 @@ void tiles_expression_scan(void) {
             if (touched && !tiles_expression_control_owns_pad_grid() && !tiles_octave_control_is_transpose_active() &&
                 !tiles_op_mode_owns_pad(pad) && !tiles_game_mode_is_active()) {
                 begin_awaiting_strike(s, pad, now_ms);
-                /* Touch-only haptic tick, whether or not it becomes a press. */
-                tiles_haptics_trigger_touch_pulse(pad);
+                /* Touch-only haptic tick, whether or not it becomes a press; not for
+                 * a finger that never left (see PRESSED_DROPOUT_GRACE_MS). */
+                if (!s->awaiting_rest && touch_gap_ms >= TOUCH_PULSE_MIN_GAP_MS) {
+                    tiles_haptics_trigger_touch_pulse(pad);
+                }
+            }
+            continue;
+        }
+
+        if (s->state == PAD_STATE_AWAITING_STRIKE && s->awaiting_rest) {
+            /* The key was already down when this touch began: silent until it
+             * comes up near rest, then a strike is detected from there. */
+            if (!touched) {
+                s->state = PAD_STATE_IDLE;
+            } else if (depth_now <= RETRIGGER_ARM_DEPTH_DELTA) {
+                begin_awaiting_strike(s, pad, now_ms);
             }
             continue;
         }
@@ -1599,14 +1653,16 @@ void tiles_expression_scan(void) {
         }
 
         /* PAD_STATE_NOTE_ON */
-        if (!touched) {
+        float raw_depth = depth_now;
+        /* A dropout while the key is still pressed keeps the note (see
+         * PRESSED_DROPOUT_GRACE_MS). */
+        bool key_still_down = raw_depth >= MIN_STRIKE_DEPTH_DELTA && touch_gap_ms < PRESSED_DROPOUT_GRACE_MS;
+        if (!touched && !key_still_down) {
             /* Touch ended: the finger let go (the one player_release=true call). */
             end_held_note(s, pad, true, true);
             s->state = PAD_STATE_IDLE;
             continue;
         }
-
-        float raw_depth = (float)tiles_hall_get_depth(pad);
 
         /* Retrigger without lifting: depth back near rest (after the grace time)
          * ends the note and starts strike detection again; the next real press

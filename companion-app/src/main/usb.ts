@@ -15,6 +15,12 @@ let controlInterface: number | null = null
 let controlIn: number | null = null
 let controlOut: number | null = null
 let receiveBuffer = ''
+let nextTag = 1
+let tagsSupported = true
+/* The device answers one command at a time, in order. Commands queue here
+ * so two callers' reads can't interleave (each would take whichever line
+ * came next, so a GET could get another key's value). */
+let queue: Promise<unknown> = Promise.resolve()
 
 export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
   return (await usb.getDevices()).map(device => ({
@@ -59,6 +65,7 @@ export async function connectUsbDevice(vendorId: number, productId: number) {
   controlOut = out.endpointNumber
   controlIn = input.endpointNumber
   receiveBuffer = ''
+  tagsSupported = true
 
   console.log('TILES ready:', {
     interface: controlInterface,
@@ -113,14 +120,28 @@ async function readLine(): Promise<string> {
   return line
 }
 
-export async function sendTilesCommand(command: string, multiLine = false): Promise<string[]> {
+export function sendTilesCommand(command: string, multiLine = false): Promise<string[]> {
+  const run = queue.then(() => runCommand(command, multiLine))
+  queue = run.catch(() => undefined)
+  return run
+}
+
+/* Each command is tagged ("@12 GET pedal.mode" is answered "@12 <value>"),
+ * so lines that aren't its answer -- the rest of a reply still streaming
+ * when the app last quit -- are skipped. Firmware before 0.3.7 doesn't know
+ * tags and answers "ERR unknown-command" untagged: the command is then
+ * resent plain, and so is every later one. */
+async function runCommand(command: string, multiLine: boolean): Promise<string[]> {
   if (!activeDevice || controlOut === null) throw new Error('TILES is not connected')
 
-  console.log(`→ TILES: ${command}`)
+  const tag = tagsSupported ? `@${nextTag} ` : ''
+  nextTag = nextTag >= 99999 ? 1 : nextTag + 1
+
+  console.log(`→ TILES: ${tag}${command}`)
 
   const write = await activeDevice.transferOut(
     controlOut,
-    new TextEncoder().encode(`${command}\n`),
+    new TextEncoder().encode(`${tag}${command}\n`),
   )
 
   if (write.status !== 'ok') throw new Error(`USB write failed: ${write.status}`)
@@ -128,8 +149,20 @@ export async function sendTilesCommand(command: string, multiLine = false): Prom
   const lines: string[] = []
 
   while (true) {
-    const line = await readLine()
-    console.log(`← TILES: ${line}`)
+    const raw = await readLine()
+    console.log(`← TILES: ${raw}`)
+
+    let line = raw
+    if (tag) {
+      if (!raw.startsWith(tag)) {
+        if (raw === 'ERR unknown-command' && lines.length === 0) {
+          tagsSupported = false
+          return runCommand(command, multiLine)
+        }
+        continue
+      }
+      line = raw.slice(tag.length)
+    }
 
     if (multiLine && line === 'OK') return lines
 

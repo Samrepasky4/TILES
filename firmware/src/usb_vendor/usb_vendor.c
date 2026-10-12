@@ -8,6 +8,7 @@
 #include "lighting.h"
 #include "note_map.h"
 #include "op_mode.h"
+#include "play_state.h"
 #include "power.h"
 #include "product_identity.h"
 #include "settings.h"
@@ -19,6 +20,7 @@
 #include "pico/bootrom.h"
 #include "pico/time.h"
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +38,15 @@
 
 static char s_rx_line[USB_VENDOR_LINE_MAX];
 static size_t s_rx_len;
+
+/* Request tags: a command line may start with "@<tag> " (1-16 of
+ * A-Z a-z 0-9 _ -), and then every line of its reply starts with the same
+ * "@<tag> ". A host can then keep several commands in flight and match
+ * each line to its request, and skip lines left over from an earlier
+ * session (a reply still streaming when the last app quit). Untagged
+ * commands are answered untagged, as always. */
+#define USB_VENDOR_TAG_MAX 16u
+static char s_tag[USB_VENDOR_TAG_MAX + 3u]; /* "@" tag " " NUL; empty = untagged */
 
 static char s_out[USB_VENDOR_OUT_MAX];
 static size_t s_out_len;  /* bytes queued */
@@ -58,6 +69,7 @@ static void out_append(const char *text) {
 }
 
 static void reply(const char *text) {
+    out_append(s_tag);
     out_append(text);
     out_append("\n");
 }
@@ -214,7 +226,7 @@ static bool listing_row(char *text, size_t cap) {
  * when the listing runs out. */
 static void fill_listing(void) {
     char text[USB_VENDOR_LINE_MAX];
-    while (s_listing != LISTING_NONE && sizeof(s_out) - s_out_len > USB_VENDOR_LINE_MAX + 4u) {
+    while (s_listing != LISTING_NONE && sizeof(s_out) - s_out_len > USB_VENDOR_LINE_MAX + sizeof(s_tag) + 4u) {
         if (listing_row(text, sizeof(text))) {
             reply(text);
         } else {
@@ -347,9 +359,40 @@ static void handle_scale(void) {
     reply_content_result(tiles_content_put_scale(&s));
 }
 
+/* Takes a leading "@<tag> " off `line` into s_tag (cleared when there's
+ * none). False for a malformed tag. */
+static bool take_tag(char **line) {
+    s_tag[0] = '\0';
+    if ((*line)[0] != '@') {
+        return true;
+    }
+    size_t n = strcspn(*line + 1, " ");
+    if (n == 0u || n > USB_VENDOR_TAG_MAX) {
+        return false;
+    }
+    for (size_t i = 1u; i <= n; i++) {
+        char c = (*line)[i];
+        if (!isalnum((unsigned char)c) && c != '_' && c != '-') {
+            return false;
+        }
+    }
+    memcpy(s_tag, *line, n + 1u);
+    s_tag[n + 1u] = ' ';
+    s_tag[n + 2u] = '\0';
+    *line += n + 1u;
+    return true;
+}
+
 static void handle_line(char *line) {
+    if (!take_tag(&line)) {
+        reply_err("bad-tag");
+        return;
+    }
     char *cmd = strtok(line, " ");
     if (cmd == NULL) {
+        if (s_tag[0] != '\0') {
+            reply_err("missing-command"); /* a tagged request always gets an answer */
+        }
         return; /* blank line: no reply, like a terminal */
     }
     char text[USB_VENDOR_LINE_MAX];
@@ -460,6 +503,18 @@ static void handle_line(char *line) {
         snprintf(text, sizeof(text), "drums.saves=%lu", (unsigned long)drums.saves);
         reply(text);
         snprintf(text, sizeof(text), "drums.pending=%d", drums.pending ? 1 : 0);
+        reply(text);
+        tiles_play_state_info_t play = tiles_play_state_get_info();
+        snprintf(text, sizeof(text), "state.storage=%s", play.storage ? "ok" : "none");
+        reply(text);
+        if (play.have_saved) {
+            snprintf(text, sizeof(text), "state.saved=mode:%u scale:%u octave:%d key:%d", (unsigned)play.mode,
+                     (unsigned)play.scale, (int)play.octave, (int)play.key);
+            reply(text);
+        }
+        snprintf(text, sizeof(text), "state.saves=%lu", (unsigned long)play.saves);
+        reply(text);
+        snprintf(text, sizeof(text), "state.pending=%d", play.pending ? 1 : 0);
         reply(text);
         reply_ok();
         return;
@@ -610,6 +665,7 @@ static void handle_line(char *line) {
 
 void tiles_usb_vendor_init(void) {
     s_listing = LISTING_NONE;
+    s_tag[0] = '\0';
     s_rx_len = 0u;
     s_out_len = 0u;
     s_out_sent = 0u;

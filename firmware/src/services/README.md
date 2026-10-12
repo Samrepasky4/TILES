@@ -39,6 +39,7 @@ before re-tuning a constant or reviving an approach that was dropped.
 | Module | Role |
 |---|---|
 | `op_mode` | Mode menu and the modes: melodic, sequencer, bass guitar, chord, Song (beta), Ableton, drums. Scale picker, pattern bank, captures, Live transport. The button map is in `op_mode.h`. |
+| `play_state` | Mode, scale, key and octave saved to flash (through `storage/log_store`, never erasing while the clock runs) and restored at power-up. Tested natively. |
 | `drum_seq` | Drum mode: 16 or 32 steps (two pages, diamond flips) on columns 1-4, 8 drums on columns 5-6 (tap selects, push plays, circle + push rolls), banks of 8 in Drum Rack order, MIDI channel 10, saved through `storage/log_store`. The step engine, layout and save format are `drum_pattern` (no hardware; tested). |
 | `octave_control` | "-"/"+" octave shift and transpose mode. |
 | `expression_control` | Square: pitch bend toggle, expression menu; circle + square: MPE on/off. |
@@ -80,9 +81,10 @@ before re-tuning a constant or reviving an approach that was dropped.
   explicit enable; PCA9685 outputs stay disabled until configured.
 - **Persistence.** User-tunable values are settings (`../profiles/`).
   Sequencer patterns and the Song library are saved to flash by
-  `op_mode.c` (`../storage/flash_map.h`). Scale/key/octave, the active
-  mode and running sequencer lanes survive a crash reboot
-  (`__uninitialized_ram`), not a power cycle.
+  `op_mode.c` (`../storage/flash_map.h`). Scale/key/octave and the
+  active mode survive a power cycle (`play_state`, saved ~2 s after a
+  change) and a crash reboot (`__uninitialized_ram`); running sequencer
+  lanes survive only a crash reboot.
 - **Unmeasured constants.** Most timing and feel constants are marked
   as first guesses in their comments; the measured ones say what
   capture they came from. Re-measure before retuning.

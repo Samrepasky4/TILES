@@ -101,6 +101,9 @@ TILES Control"**. Match on the interface name, not only the ID. Older
 boards may still report `0x2E8A:0x100A`.
 
 **Protocol (V1, text):** one command per line, one or more reply lines.
+One command at a time: send the next only after the reply ends (`src/main/usb.ts`
+queues them and tags each, `@<n> GET ...`, so a stray line can't be taken
+as the answer; see "Request tags" in the spec).
 Full spec: `../shared/protocol/README.md`. Working reference client:
 `../tools/tiles_control.py` (~200 lines of Python -- read this first).
 
