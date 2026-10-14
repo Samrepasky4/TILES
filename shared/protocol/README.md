@@ -196,7 +196,7 @@ touched pads in every mode: `look.pressure_hue_degrees` turns a pad's colour
 toward Sentia blue (#94ABF9) by up to that many degrees at full pressure (white
 tints partway toward it instead), brightness unchanged, with MPE on only; `look.bend_dim_percent`
 is how much a bending pad's brightness falls at full bend (a smooth swell).
-`look.led_intensity_percent` scales the pads and underglow below the ceiling
+`look.led_intensity_percent` scales the pads, underglow and button LEDs below the ceiling
 (the Feel menu's row 4 sets 0, 4, 16, 36, 64 or 100; 0 = off).
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually

@@ -43,7 +43,7 @@ before re-tuning a constant or reviving an approach that was dropped.
 | `drum_seq` | Drum mode: 16 or 32 steps (two pages, diamond flips) on columns 1-4, 8 drums on columns 5-6 (tap selects, push plays, circle + push rolls), banks of 8 in Drum Rack order, MIDI channel 10, saved through `storage/log_store`. The step engine, layout and save format are `drum_pattern` (no hardware; tested). |
 | `octave_control` | "-"/"+" octave shift and transpose mode. |
 | `expression_control` | Square: pitch bend toggle, expression menu; circle + square: MPE on/off. |
-| `lighting` | Pad LEDs and underglow; power-derived brightness ceiling; idle colors by note role; indicator priority on the underglow; on touched pads, every mode: hue turns toward Sentia blue with pressure, brightness swells down with bend; LED intensity (Feel menu row 4) scales pads and underglow. |
+| `lighting` | Pad LEDs and underglow; power-derived brightness ceiling; idle colors by note role; indicator priority on the underglow; on touched pads, every mode: hue turns toward Sentia blue with pressure, brightness swells down with bend; LED intensity (Feel menu row 4) scales pads, underglow and button LEDs. |
 | `standby` | Screensaver animations and deep sleep; circle holds. |
 | `boot_sequence` | Power-on animation (+ a Hall baseline recapture). |
 | `game_mode` | Snake, Tile Breaker, Tile Drop, Paddle, Echo. |

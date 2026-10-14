@@ -47,7 +47,7 @@ typedef enum {
     TILES_LOOK_ECHO_FLASH_MS,             /* echo onset flash; 0 = none */
     TILES_LOOK_PRESSURE_HUE_DEGREES,      /* hue turn at full pressure, degrees; 0 = off */
     TILES_LOOK_BEND_DIM_PERCENT,          /* brightness taken off at full bend; 0 = off */
-    TILES_LOOK_LED_INTENSITY_PERCENT,     /* pads + underglow, % of the ceiling; 0 = off (Feel menu row 4) */
+    TILES_LOOK_LED_INTENSITY_PERCENT,     /* pads, underglow, buttons; % of the ceiling; 0 = off (Feel menu row 4) */
     TILES_LOOK_COUNT
 } tiles_look_param_t;
 

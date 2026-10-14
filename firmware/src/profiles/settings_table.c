@@ -202,8 +202,8 @@ static const tiles_setting_def_t TABLE[] = {
                   get_look_pressure_hue, set_look_pressure_hue),
     TILES_SETTING(0x040A, "look.bend_dim_percent", TILES_SETTING_UINT, {.u = 0}, {.u = 90}, NULL,
                   get_look_bend_dim, set_look_bend_dim),
-    /* Pads and underglow, percent of the power mode's ceiling (Feel menu row
-     * 4: 0, 4, 16, 36, 64, 100); 0 = off. */
+    /* Pads, underglow and button LEDs, percent of full (Feel menu row 4: 0,
+     * 4, 16, 36, 64, 100); 0 = off. */
     TILES_SETTING(0x040B, "look.led_intensity_percent", TILES_SETTING_UINT, {.u = 0}, {.u = 100}, NULL,
                   get_look_led_intensity, set_look_led_intensity),
     /* MIDI */

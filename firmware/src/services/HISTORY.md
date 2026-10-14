@@ -9672,3 +9672,10 @@ change. Search it by file or feature name.
   the restored value. Pads and the normal underglow only (button LEDs and
   the underglow indicators are untouched), and the Feel menu itself always
   shows at full brightness, so "off" can be undone.
+- **LED intensity covers the button LEDs (0.4.4, 2026-10-14).** Real
+  feedback: "this affects function buttons as well". buttons.c now
+  remembers the level each LED was last asked for and writes it scaled by
+  the intensity (tiles_buttons_set_led_intensity(), fed by lighting.c each
+  pass, full while the Feel menu is open); a change redraws all six from
+  that memory, since some owners only draw their LED on change. A PCA9685
+  resync also restores every LED from it instead of waiting for owners.

@@ -29,7 +29,8 @@
  *   row 1 (top)    haptics intensity (services/haptics.c)
  *   row 2          pitch bend sensitivity (services/expression.c)
  *   row 3          pressure (aftertouch) sensitivity (services/expression.c)
- *   row 4 (bottom) LED intensity (services/lighting.c look.led_intensity_percent)
+ *   row 4 (bottom) LED intensity: pads, underglow and button LEDs
+ *                  (services/lighting.c look.led_intensity_percent)
  * Tapping a pad selects that column (1-6) and applies it at once. Rows 1-3:
  * column 4 is the default, 5-6 stronger, 2-3 weaker
  * (piecewise_column_value()). Row 4: column 6 (the default) is the full

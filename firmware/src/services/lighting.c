@@ -1,6 +1,7 @@
 #include "lighting.h"
 
 #include "board_pins.h"
+#include "buttons.h"
 #include "crash_indicator.h"
 #include "debug_mode.h"
 #include "expression.h"
@@ -233,8 +234,9 @@ void tiles_lighting_set_look(tiles_look_param_t param, uint16_t value) {
 }
 
 /* LED intensity (Feel menu row 4) as a factor, 1 while the Feel menu is
- * open so it stays readable at "off". Applies to the pads and the normal
- * underglow, not to the underglow indicators (crash, debug, captures). */
+ * open so it stays readable at "off". Applies to the pads, the normal
+ * underglow and the button LEDs (handed to buttons.c each pass), not to
+ * the underglow indicators (crash, debug, captures). */
 static float led_intensity(void) {
     if (tiles_expression_control_owns_pad_grid()) {
         return 1.0f;
@@ -849,6 +851,9 @@ void tiles_lighting_service(void) {
         write_underglow();
     }
     s_underglow_override_was_active = underglow_override_active;
+
+    /* Button LEDs follow the LED intensity (no-op unless it changed). */
+    tiles_buttons_set_led_intensity(led_intensity());
 
     /* One pad write per pass: a pad showing pressure hue / bend dimming (or
      * one that just stopped) that's due, taking turns; else the round-robin. */
