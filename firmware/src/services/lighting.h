@@ -33,7 +33,7 @@ bool tiles_lighting_init(void);
 void tiles_lighting_set_pad_press(uint8_t logical_pad, float press_0_to_1);
 
 /* The tunable "look" of the pads: resting brightness tiers, echo colors,
- * and the pressure hue / bend flutter on touched pads, each a saved setting
+ * and the pressure hue / bend dimming on touched pads, each a saved setting
  * (look.* in profiles/settings_table.c). Values are whole percent of the
  * ceiling (tints: percent of full), except the echo flash in ms and the
  * pressure hue in degrees. None can raise the ceiling. Clamped to <= 100
@@ -46,7 +46,7 @@ typedef enum {
     TILES_LOOK_ECHO_SECONDARY_B_PERCENT,  /* second TILES DISPLAY (soft red): settled blue */
     TILES_LOOK_ECHO_FLASH_MS,             /* echo onset flash; 0 = none */
     TILES_LOOK_PRESSURE_HUE_DEGREES,      /* hue turn at full pressure, degrees; 0 = off */
-    TILES_LOOK_BEND_FLUTTER_PERCENT,      /* brightness dip at full bend; 0 = off */
+    TILES_LOOK_BEND_DIM_PERCENT,          /* brightness taken off at full bend; 0 = off */
     TILES_LOOK_COUNT
 } tiles_look_param_t;
 

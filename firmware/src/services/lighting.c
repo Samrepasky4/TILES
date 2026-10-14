@@ -66,7 +66,7 @@
 #define TILES_LIGHTING_ECHO_SECONDARY_G 0.18f
 #define TILES_LIGHTING_ECHO_SECONDARY_B 0.12f
 
-/* ---- Pressure hue and bend flutter, on every touched pad ------------------
+/* ---- Pressure hue and bend dimming, on every touched pad ------------------
  * The last step before a pad is written, in every mode (not games, the
  * sleep animation or the bench test), so a pad answers the same way
  * whatever colour it shows:
@@ -83,31 +83,29 @@
  *     follows what the note does. Smoothed a little (PRESSURE_SMOOTHING).
  *     MPE only: with MPE off, pressure is one channel-wide value, not the
  *     pad's own, so the pads don't show it.
- *   - A bending note's pad flutters in brightness: the dip and the speed
- *     grow with the bend (expression.c's amount, 0..1 of the pad's full
- *     bend), down to 1 - TILES_LIGHTING_BEND_FLUTTER at full bend, at
- *     FLUTTER_HZ_MIN..MAX. It never goes dark.
- * Pads showing either are rewritten every PAD_LIVE_REFRESH_MS (bending
- * ones every FLUTTER_REFRESH_MS, several samples per flutter cycle). They
- * take the pass's one pad write from the round-robin, which waits: a pad
- * write is ~0.7 ms (four mux writes on I2C plus the 300 us latch), and a
- * second one per pass added ~1 ms to the loop while playing. All first guesses: "slight, but
- * visible". The amounts are settings (look.pressure_hue_degrees,
- * look.bend_flutter_percent); 0 turns either off. */
+ *   - A bending note's pad swells darker as it bends: brightness falls
+ *     with the bend (expression.c's amount, 0..1 of the pad's full bend)
+ *     to 1 - TILES_LIGHTING_BEND_DIM at full bend, eased over
+ *     BEND_SWELL_MS each way so it swells rather than steps. A flicker
+ *     (6-24 Hz) was tried first; a smooth dim reads better. It never goes
+ *     dark.
+ * Pads showing either are rewritten every PAD_LIVE_REFRESH_MS. They take
+ * the pass's one pad write from the round-robin, which waits: a pad write
+ * is ~0.7 ms (four mux writes on I2C plus the 300 us latch), and a second
+ * one per pass added ~1 ms to the loop while playing. All first guesses:
+ * "slight, but visible". The amounts are settings
+ * (look.pressure_hue_degrees, look.bend_dim_percent); 0 turns either off. */
 #define TILES_LIGHTING_PRESSURE_HUE_DEGREES 40u
-#define TILES_LIGHTING_BEND_FLUTTER 0.5f
+#define TILES_LIGHTING_BEND_DIM 0.5f
 #define PRESSURE_NEUTRAL_HUE_DEG 300.0f
 /* Neutral tint saturation at full pressure, for the default hue amount
  * (scaled with look.pressure_hue_degrees, so one setting moves both). */
 #define PRESSURE_NEUTRAL_SAT 0.45f
 #define PRESSURE_NEUTRAL_BELOW_SAT 0.15f
 #define PRESSURE_SMOOTHING 0.3f
-#define FLUTTER_HZ_MIN 12.0f
-#define FLUTTER_HZ_MAX 24.0f
+#define BEND_SWELL_MS 60.0f
 #define PAD_LIVE_REFRESH_MS 12u
-#define FLUTTER_REFRESH_MS 5u
 #define PAD_FX_EPSILON 0.005f
-#define LIGHTING_PI 3.14159265358979323846f
 
 /* The constants above are the DEFAULTS of the look.* settings. s_look[] is
  * what pad_desired_rgb() reads; settings can change it live over USB and
@@ -122,7 +120,7 @@ static uint16_t s_look[TILES_LOOK_COUNT] = {
     [TILES_LOOK_ECHO_SECONDARY_B_PERCENT] = LOOK_PCT(TILES_LIGHTING_ECHO_SECONDARY_B),
     [TILES_LOOK_ECHO_FLASH_MS] = TILES_LIGHTING_ECHO_FLASH_MS,
     [TILES_LOOK_PRESSURE_HUE_DEGREES] = TILES_LIGHTING_PRESSURE_HUE_DEGREES,
-    [TILES_LOOK_BEND_FLUTTER_PERCENT] = LOOK_PCT(TILES_LIGHTING_BEND_FLUTTER),
+    [TILES_LOOK_BEND_DIM_PERCENT] = LOOK_PCT(TILES_LIGHTING_BEND_DIM),
 };
 
 #define TILES_LOOK_MAX_FLASH_MS 2000u
@@ -274,10 +272,9 @@ static bool s_standby_active;
 /* Whether a crash/debug/pattern/capture override owned the underglow last
  * frame (restore on release; see tiles_lighting_service()). */
 static bool s_underglow_override_was_active;
-/* Pressure hue / bend flutter state per pad (see "Pressure hue" above). */
+/* Pressure hue / bend dimming state per pad (see "Pressure hue" above). */
 static float s_pad_pressure[TILES_NUM_PADS];     /* 0..1, smoothed */
-static float s_pad_bend[TILES_NUM_PADS];         /* 0..1 */
-static float s_flutter_phase[TILES_NUM_PADS];    /* cycles, 0..1 */
+static float s_pad_bend[TILES_NUM_PADS];         /* 0..1, eased (BEND_SWELL_MS) */
 static bool s_pad_fx_shown[TILES_NUM_PADS];      /* last write carried an effect */
 static uint32_t s_pad_written_ms[TILES_NUM_PADS];
 static uint32_t s_fx_updated_ms;
@@ -367,14 +364,14 @@ static bool pad_fx_active(uint8_t pad_index) {
     return pad_fx_allowed() && (s_pad_pressure[pad_index] > PAD_FX_EPSILON || s_pad_bend[pad_index] > 0.0f);
 }
 
-/* Once per pass: each pad's pressure (touched pads only), bend and flutter
- * phase. */
+/* Once per pass: each pad's pressure (touched pads only) and eased bend. */
 static void update_pad_fx(uint32_t now_ms) {
     float dt_s = (float)(now_ms - s_fx_updated_ms) / 1000.0f;
     s_fx_updated_ms = now_ms;
     if (dt_s > 0.1f) {
         dt_s = 0.1f;
     }
+    float swell = 1.0f - expf(-dt_s * 1000.0f / BEND_SWELL_MS); /* per-pass easing */
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
         uint8_t pad = (uint8_t)(i + 1u);
         if (tiles_touch_is_touched(pad) && tiles_expression_is_mpe_enabled()) {
@@ -383,17 +380,15 @@ static void update_pad_fx(uint32_t now_ms) {
         } else {
             s_pad_pressure[i] = 0.0f;
         }
-        s_pad_bend[i] = tiles_expression_get_pad_bend_amount(pad);
-        if (s_pad_bend[i] > 0.0f) {
-            float hz = FLUTTER_HZ_MIN + (FLUTTER_HZ_MAX - FLUTTER_HZ_MIN) * s_pad_bend[i];
-            s_flutter_phase[i] = fmodf(s_flutter_phase[i] + hz * dt_s, 1.0f);
-        } else {
-            s_flutter_phase[i] = 0.0f;
+        float bend = tiles_expression_get_pad_bend_amount(pad);
+        s_pad_bend[i] += swell * (bend - s_pad_bend[i]);
+        if (bend == 0.0f && s_pad_bend[i] < 0.002f) {
+            s_pad_bend[i] = 0.0f;
         }
     }
 }
 
-/* The pressure hue and bend flutter on top of a pad's colour. */
+/* The pressure hue and bend dimming on top of a pad's colour. */
 static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
     if (!pad_fx_active(pad_index)) {
         return c;
@@ -414,10 +409,9 @@ static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
         }
         c = turned;
     }
-    float flutter = look_fraction(TILES_LOOK_BEND_FLUTTER_PERCENT) * s_pad_bend[pad_index];
-    if (flutter > 0.0f) {
-        float wave = 0.5f - 0.5f * cosf(2.0f * LIGHTING_PI * s_flutter_phase[pad_index]); /* 0..1 */
-        float level = 1.0f - flutter * wave;
+    float dim = look_fraction(TILES_LOOK_BEND_DIM_PERCENT) * s_pad_bend[pad_index];
+    if (dim > 0.0f) {
+        float level = 1.0f - dim;
         c.r *= level;
         c.g *= level;
         c.b *= level;
@@ -426,7 +420,7 @@ static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
 }
 
 /* What a pad's r/g/b wants (0.0-1.0) in every state, before the ceiling
- * (applied in write_pad()) and the pressure hue / bend flutter
+ * (applied in write_pad()) and the pressure hue / bend dimming
  * (apply_pad_fx()). The single source of truth for a pad's look. */
 static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
     if (s_standby_active) {
@@ -828,14 +822,13 @@ void tiles_lighting_service(void) {
     }
     s_underglow_override_was_active = underglow_override_active;
 
-    /* One pad write per pass: a pad showing pressure hue / bend flutter (or
+    /* One pad write per pass: a pad showing pressure hue / bend dimming (or
      * one that just stopped) that's due, taking turns; else the round-robin. */
     uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     update_pad_fx(now_ms);
     for (uint8_t n = 0; n < TILES_NUM_PADS; n++) {
         uint8_t i = (uint8_t)((s_live_cursor + n) % TILES_NUM_PADS);
-        uint32_t refresh_ms = s_pad_bend[i] > 0.0f ? FLUTTER_REFRESH_MS : PAD_LIVE_REFRESH_MS;
-        if ((pad_fx_active(i) || s_pad_fx_shown[i]) && now_ms - s_pad_written_ms[i] >= refresh_ms) {
+        if ((pad_fx_active(i) || s_pad_fx_shown[i]) && now_ms - s_pad_written_ms[i] >= PAD_LIVE_REFRESH_MS) {
             write_pad(i);
             s_live_cursor = (uint8_t)((i + 1u) % TILES_NUM_PADS);
             return;

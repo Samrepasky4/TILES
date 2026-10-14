@@ -9651,3 +9651,9 @@ change. Search it by file or feature name.
   TILES_HALL_KEY_UP_DEPTH (100) or 300 ms pass, usually one to three
   extra reads per release. "Up" is that level, not <= 40: bare contact
   reads up to ~96, so a finger left lightly on a pad couldn't re-arm it.
+- **Bend swells the pad darker instead of flickering (0.4.2, 2026-10-14).**
+  Real feedback: "lets do swells instead of flicker so less bright led when
+  bend". The flutter is gone: brightness falls smoothly with the bend
+  amount, to 50% at full bend, eased over 60 ms each way. The setting kept
+  its id (0x040A, settings are saved by id) and is now
+  look.bend_dim_percent.
