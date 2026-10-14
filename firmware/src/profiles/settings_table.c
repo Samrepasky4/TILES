@@ -99,6 +99,8 @@ LOOK_ENTRY(echo_tint, TILES_LOOK_ECHO_SUSTAIN_TINT_PERCENT)
 LOOK_ENTRY(echo_g, TILES_LOOK_ECHO_SECONDARY_G_PERCENT)
 LOOK_ENTRY(echo_b, TILES_LOOK_ECHO_SECONDARY_B_PERCENT)
 LOOK_ENTRY(echo_flash, TILES_LOOK_ECHO_FLASH_MS)
+LOOK_ENTRY(pressure_hue, TILES_LOOK_PRESSURE_HUE_DEGREES)
+LOOK_ENTRY(bend_flutter, TILES_LOOK_BEND_FLUTTER_PERCENT)
 
 /* ---- colour scheme and custom pad colours (lighting.h) ---- */
 _Static_assert(TILES_LIGHTING_COLOR_NONE == TILES_COLOR_NONE, "lighting and settings must agree on 'none'");
@@ -193,6 +195,12 @@ static const tiles_setting_def_t TABLE[] = {
                   get_look_echo_b, set_look_echo_b),
     TILES_SETTING(0x0408, "look.echo_flash_ms", TILES_SETTING_UINT, {.u = 0}, {.u = 2000}, NULL, get_look_echo_flash,
                   set_look_echo_flash),
+    /* Touched pads: hue turn at full pressure (degrees) and brightness dip at
+     * full bend (percent); 0 = off. */
+    TILES_SETTING(0x0409, "look.pressure_hue_degrees", TILES_SETTING_UINT, {.u = 0}, {.u = 90}, NULL,
+                  get_look_pressure_hue, set_look_pressure_hue),
+    TILES_SETTING(0x040A, "look.bend_flutter_percent", TILES_SETTING_UINT, {.u = 0}, {.u = 90}, NULL,
+                  get_look_bend_flutter, set_look_bend_flutter),
     /* MIDI */
     TILES_SETTING(0x0500, "midi.din_trs_type", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, DIN_TYPE_NAMES, get_din_type,
                   set_din_type),

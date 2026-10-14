@@ -66,6 +66,11 @@ float tiles_expression_get_pitch_bend_sensitivity(void);
 void tiles_expression_set_aftertouch_sensitivity(uint16_t depth_full_scale);
 uint16_t tiles_expression_get_aftertouch_sensitivity(void);
 
+/* How far pad 1-24's sounding note is bent: 0 (centred, no note, or bend
+ * off) to 1 (the pad's full bend, before the wire-range scaling), vibrato
+ * included. For the LEDs' bend flutter (lighting.c). */
+float tiles_expression_get_pad_bend_amount(uint8_t logical_pad);
+
 /* Melodic harmonics (hold one note, lightly touch other pads to pluck its
  * harmonics; expression.c "Melodic harmonics"). Setting
  * `features.melodic_harmonics`, default on; turning it off ends any

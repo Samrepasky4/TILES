@@ -9610,3 +9610,20 @@ change. Search it by file or feature name.
   Checked on both units: pipelined tagged commands (with a reader) answer in
   order, each with its tag; the line after a stalled batch is answered;
   drums saved within 3 s and restored after both a reflash and a REBOOT APP.
+- **Pressure hue and bend flutter on the pads (0.3.9, 2026-10-14).** Asked:
+  "led hue shift slightly on pressure, make it standardized so the hue
+  shifts universally correctly also make it not too crazy but actually
+  still visible. and for pitchbend led intensity flutter tied to the
+  amount of bend." One last step in lighting.c's write_pad(), on every
+  touched pad in every mode (not games, the sleep animation or the bench
+  test): pressure (Hall depth past the strike threshold, scaled like
+  aftertouch) turns the colour by up to 40 degrees in HSV with saturation
+  and value kept, so every colour moves by the same angle and nothing gets
+  brighter; white has no hue, so it tints toward Sentia magenta (300
+  degrees, up to 45% saturation) instead, blended in below 15% saturation.
+  A bending note's pad dips in brightness by up to 50% at full bend
+  (expression.c's new tiles_expression_get_pad_bend_amount(), 0..1 of the
+  pad's own range), 6-12 Hz rising with the bend. Pads showing either are
+  rewritten every 12 ms, at most one extra pad write per pass. Settings
+  look.pressure_hue_degrees (0x0409) and look.bend_flutter_percent
+  (0x040A), 0 = off. All first guesses; not yet seen on hardware.

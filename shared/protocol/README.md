@@ -168,6 +168,8 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0406 | `look.echo_secondary_g_percent` | uint | 0 - 100 | `18` | yes |
 | 0x0407 | `look.echo_secondary_b_percent` | uint | 0 - 100 | `12` | yes |
 | 0x0408 | `look.echo_flash_ms` | uint | 0 - 2000 (0 = no flash) | `180` | yes |
+| 0x0409 | `look.pressure_hue_degrees` | uint | 0 - 90 (0 = off) | `40` | yes |
+| 0x040A | `look.bend_flutter_percent` | uint | 0 - 90 (0 = off) | `50` | yes |
 | 0x0500 | `midi.din_trs_type` | enum | `a`, `b` (TRS polarity of DIN MIDI OUT) | `a` | yes |
 | 0x0600 | `features.melodic_harmonics` | bool | | `1` | yes |
 | 0x0601 | `features.harmonics.arm_ms` | uint | 0 - 1000 (ms a struck note is held alone before other touches may pluck) | `150` | yes |
@@ -188,7 +190,11 @@ its default. A saved value for one of them is ignored.
 
 The `look.*` values are whole percent of the **fixed** LED brightness ceiling
 (50% USB-only / 90% external power) -- no setting can raise the ceiling itself.
-See `firmware/src/services/lighting.h` for what each tier is.
+See `firmware/src/services/lighting.h` for what each tier is. Two act on
+touched pads in every mode: `look.pressure_hue_degrees` turns a pad's colour
+around the colour wheel by up to that many degrees at full pressure (white
+tints toward magenta instead), brightness unchanged; `look.bend_flutter_percent`
+is how far a bending pad's brightness dips at full bend.
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually
 driving anything -- `services/power.h`'s own external-power confirmation

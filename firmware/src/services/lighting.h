@@ -32,17 +32,21 @@ bool tiles_lighting_init(void);
  * knowing about standby; the next call after standby restores the pad. */
 void tiles_lighting_set_pad_press(uint8_t logical_pad, float press_0_to_1);
 
-/* The tunable "look" of the pads: resting brightness tiers and echo
- * colors, each a saved setting (look.* in profiles/settings_table.c).
- * Values are whole percent of the ceiling (tints: percent of full), except
- * the echo flash in ms. None can raise the ceiling. Clamped to <= 100% and
- * <= 2000 ms. Defaults are the constants at the top of lighting.c. */
+/* The tunable "look" of the pads: resting brightness tiers, echo colors,
+ * and the pressure hue / bend flutter on touched pads, each a saved setting
+ * (look.* in profiles/settings_table.c). Values are whole percent of the
+ * ceiling (tints: percent of full), except the echo flash in ms and the
+ * pressure hue in degrees. None can raise the ceiling. Clamped to <= 100
+ * (<= 90 degrees) and <= 2000 ms. Defaults are the constants at the top of
+ * lighting.c. */
 typedef enum {
     TILES_LOOK_IDLE_BASELINE_PERCENT = 0, /* "visible but not active": pressed floor, bass frets, chord strip */
     TILES_LOOK_ECHO_SUSTAIN_TINT_PERCENT, /* echo (primary, green): white kept in the sustain */
     TILES_LOOK_ECHO_SECONDARY_G_PERCENT,  /* second TILES DISPLAY (soft red): settled green */
     TILES_LOOK_ECHO_SECONDARY_B_PERCENT,  /* second TILES DISPLAY (soft red): settled blue */
     TILES_LOOK_ECHO_FLASH_MS,             /* echo onset flash; 0 = none */
+    TILES_LOOK_PRESSURE_HUE_DEGREES,      /* hue turn at full pressure, degrees; 0 = off */
+    TILES_LOOK_BEND_FLUTTER_PERCENT,      /* brightness dip at full bend; 0 = off */
     TILES_LOOK_COUNT
 } tiles_look_param_t;
 

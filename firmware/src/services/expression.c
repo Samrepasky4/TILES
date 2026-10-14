@@ -1171,6 +1171,19 @@ bool tiles_expression_is_pitch_bend_enabled(void) {
     return s_pitch_bend_enabled;
 }
 
+float tiles_expression_get_pad_bend_amount(uint8_t logical_pad) {
+    if (logical_pad < 1u || logical_pad > TILES_NUM_PADS) {
+        return 0.0f;
+    }
+    const pad_expr_t *s = &s_pads[logical_pad - 1u];
+    if (s->state != PAD_STATE_NOTE_ON || !s->pitch_bend_active) {
+        return 0.0f;
+    }
+    float amount = fabsf(((float)s->pitch_bend_last_sent - (float)PITCH_BEND_CENTER) /
+                         (8191.0f * PITCH_BEND_WIRE_RANGE_COMPENSATION));
+    return amount > 1.0f ? 1.0f : amount;
+}
+
 void tiles_expression_set_pitch_bend_sensitivity(float max_cosine_deviation) {
     s_pitch_bend_max_cosine_deviation = max_cosine_deviation;
     printf("[expression] pitch bend sensitivity (max cosine deviation) now %.3f\n",
