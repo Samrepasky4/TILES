@@ -193,7 +193,7 @@ The `look.*` values are whole percent of the **fixed** LED brightness ceiling
 See `firmware/src/services/lighting.h` for what each tier is. Two act on
 touched pads in every mode: `look.pressure_hue_degrees` turns a pad's colour
 around the colour wheel by up to that many degrees at full pressure (white
-tints toward magenta instead), brightness unchanged; `look.bend_flutter_percent`
+tints toward magenta instead), brightness unchanged, with MPE on only; `look.bend_flutter_percent`
 is how far a bending pad's brightness dips at full bend.
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually

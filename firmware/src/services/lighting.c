@@ -81,12 +81,15 @@
  *     Pressure is the pad's Hall depth past the strike threshold, scaled to
  *     expression.aftertouch_sensitivity like MIDI pressure, so the light
  *     follows what the note does. Smoothed a little (PRESSURE_SMOOTHING).
+ *     MPE only: with MPE off, pressure is one channel-wide value, not the
+ *     pad's own, so the pads don't show it.
  *   - A bending note's pad flutters in brightness: the dip and the speed
  *     grow with the bend (expression.c's amount, 0..1 of the pad's full
  *     bend), down to 1 - TILES_LIGHTING_BEND_FLUTTER at full bend, at
  *     FLUTTER_HZ_MIN..MAX. It never goes dark.
- * Pads showing either are rewritten every PAD_LIVE_REFRESH_MS, one per
- * pass, on top of the round-robin. All first guesses: "slight, but
+ * Pads showing either are rewritten every PAD_LIVE_REFRESH_MS (bending
+ * ones every FLUTTER_REFRESH_MS, several samples per flutter cycle), one
+ * per pass, on top of the round-robin. All first guesses: "slight, but
  * visible". The amounts are settings (look.pressure_hue_degrees,
  * look.bend_flutter_percent); 0 turns either off. */
 #define TILES_LIGHTING_PRESSURE_HUE_DEGREES 40u
@@ -97,9 +100,10 @@
 #define PRESSURE_NEUTRAL_SAT 0.45f
 #define PRESSURE_NEUTRAL_BELOW_SAT 0.15f
 #define PRESSURE_SMOOTHING 0.3f
-#define FLUTTER_HZ_MIN 6.0f
-#define FLUTTER_HZ_MAX 12.0f
+#define FLUTTER_HZ_MIN 12.0f
+#define FLUTTER_HZ_MAX 24.0f
 #define PAD_LIVE_REFRESH_MS 12u
+#define FLUTTER_REFRESH_MS 5u
 #define PAD_FX_EPSILON 0.005f
 #define LIGHTING_PI 3.14159265358979323846f
 
@@ -371,7 +375,7 @@ static void update_pad_fx(uint32_t now_ms) {
     }
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
         uint8_t pad = (uint8_t)(i + 1u);
-        if (tiles_touch_is_touched(pad)) {
+        if (tiles_touch_is_touched(pad) && tiles_expression_is_mpe_enabled()) {
             float target = pressure_from_depth(tiles_hall_get_depth(pad));
             s_pad_pressure[i] += PRESSURE_SMOOTHING * (target - s_pad_pressure[i]);
         } else {
@@ -832,7 +836,8 @@ void tiles_lighting_service(void) {
     update_pad_fx(now_ms);
     for (uint8_t n = 0; n < TILES_NUM_PADS; n++) {
         uint8_t i = (uint8_t)((s_live_cursor + n) % TILES_NUM_PADS);
-        if ((pad_fx_active(i) || s_pad_fx_shown[i]) && now_ms - s_pad_written_ms[i] >= PAD_LIVE_REFRESH_MS) {
+        uint32_t refresh_ms = s_pad_bend[i] > 0.0f ? FLUTTER_REFRESH_MS : PAD_LIVE_REFRESH_MS;
+        if ((pad_fx_active(i) || s_pad_fx_shown[i]) && now_ms - s_pad_written_ms[i] >= refresh_ms) {
             write_pad(i);
             s_live_cursor = (uint8_t)((i + 1u) % TILES_NUM_PADS);
             break;

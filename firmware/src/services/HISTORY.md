@@ -9627,3 +9627,10 @@ change. Search it by file or feature name.
   rewritten every 12 ms, at most one extra pad write per pass. Settings
   look.pressure_hue_degrees (0x0409) and look.bend_flutter_percent
   (0x040A), 0 = off. All first guesses; not yet seen on hardware.
+- **Faster bend flutter; no pressure hue with MPE off (0.4.0, 2026-10-14).**
+  Real feedback after trying 0.3.9 on unit 2: "faster flutter on pitch
+  bend and also if mpe is off there is no hue shift". Flutter 12-24 Hz
+  (was 6-12), and bending pads are rewritten every 5 ms (others 12) so the
+  faster wave keeps several samples per cycle. With MPE off, pressure is
+  one channel-wide value, so the pads don't show it (the flutter stays).
+  0.3.9 + 1 would be 0.3.10, which the one-digit USB bcdDevice can't hold.
