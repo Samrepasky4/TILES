@@ -101,6 +101,12 @@ at a time (the companion app queues them: `companion-app/src/main/usb.ts`).
 Firmware before 0.3.7 answers a tagged command `ERR unknown-command`,
 untagged; a host can fall back to plain commands on that.
 
+Don't write a batch of commands without reading: the device stops reading
+while a reply waits to be collected, so the write stalls and can time out
+partway through a line. From 0.3.8 a partial line (no newline yet) is
+dropped after 1 s with nothing arriving while the device waits for input,
+so a half-sent command can't glue itself onto the next one.
+
 ### REBOOT
 
 Real feedback: "will we be able to flash updates without putting the board in

@@ -3068,6 +3068,11 @@ void tiles_op_mode_init(bool crash_recovered) {
 void tiles_op_mode_scan(void) {
     uint32_t now_ms = to_ms_since_boot(get_absolute_time());
 
+    /* Mode, scale, key and octave, for the next power-up. Before the early
+     * return below, so standby (or a game, or transpose) can't hold up a
+     * save until the power is pulled. */
+    tiles_play_state_service(now_ms, (uint8_t)s_active_mode, tiles_midi_clock_is_running(), !any_pad_touched());
+
     /* Boot guard: keep triangle's LED off for a moment (see
      * s_boot_relight_guard_until_ms). A no-op while a menu owns the LED. */
     if (now_ms < s_boot_relight_guard_until_ms) {
@@ -3148,8 +3153,6 @@ void tiles_op_mode_scan(void) {
     tiles_drum_seq_advance(clock, s_active_mode == OP_MODE_DRUM && !s_menu_visible && !s_scale_menu_visible);
     /* Right after the advance: it saves just after a step starts. */
     tiles_drum_seq_persist_service(now_ms, clock.running);
-    /* Mode, scale, key and octave, for the next power-up. */
-    tiles_play_state_service(now_ms, (uint8_t)s_active_mode, clock.running, !any_pad_touched());
 
     if (s_menu_visible) {
         handle_menu_taps();

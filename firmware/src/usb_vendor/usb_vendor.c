@@ -39,6 +39,14 @@
 static char s_rx_line[USB_VENDOR_LINE_MAX];
 static size_t s_rx_len;
 
+/* A partial line (no newline yet) is dropped once nothing has arrived for
+ * this long while the device waits for input. A host that gave up
+ * mid-write (a batch that timed out, an app quitting) would otherwise glue
+ * its tail onto the next session's first command. A real command arrives
+ * in one write, far quicker. */
+#define USB_VENDOR_PARTIAL_LINE_MS 1000u
+static uint32_t s_rx_idle_since_ms;
+
 /* Request tags: a command line may start with "@<tag> " (1-16 of
  * A-Z a-z 0-9 _ -), and then every line of its reply starts with the same
  * "@<tag> ". A host can then keep several commands in flight and match
@@ -587,27 +595,35 @@ static void handle_line(char *line) {
     /* REBOOT BOOTSEL | APP: the scriptable path. (picotool's -f uses the
      * standard USB reset interface instead; see tusb_config.h.)
      *
-     * BOOTSEL enters the ROM USB bootloader. reset_usb_boot() never returns,
-     * so the "OK" is flushed by hand first, with a bounded wait (pump_out()
-     * alone only reaches the peripheral FIFO, not the host). No activity LED
-     * is wired, hence the 0 arguments.
+     * Both flush the "OK" by hand first, with a bounded wait (pump_out()
+     * alone only reaches the peripheral FIFO, not the host).
      *
-     * APP is a warm restart into this firmware (to test a fresh boot, or to
-     * unstick a non-USB subsystem). watchdog_reboot() returns right away, so
-     * the reply goes out during the delay like any other. */
+     * BOOTSEL enters the ROM USB bootloader (reset_usb_boot() never
+     * returns). No activity LED is wired, hence the 0 arguments.
+     *
+     * APP is a warm restart into this firmware, booting as from power-on
+     * (not a crash recovery: watchdog_reboot() clears the marker that
+     * watchdog_enable_caused_reboot() reads), to test a fresh boot or
+     * unstick a non-USB subsystem. It must not return to the main loop:
+     * that feeds the watchdog every pass, which kept a delayed reboot from
+     * ever firing. */
     if (strcmp(cmd, "REBOOT") == 0) {
         char *what = strtok(NULL, " ");
-        if (what != NULL && strcmp(what, "BOOTSEL") == 0) {
+        bool bootsel = what != NULL && strcmp(what, "BOOTSEL") == 0;
+        if (bootsel || (what != NULL && strcmp(what, "APP") == 0)) {
             reply_ok();
             uint32_t deadline_ms = to_ms_since_boot(get_absolute_time()) + 50u;
             while (to_ms_since_boot(get_absolute_time()) < deadline_ms) {
                 tud_task();
                 pump_out();
             }
-            reset_usb_boot(0, 0);
-        } else if (what != NULL && strcmp(what, "APP") == 0) {
-            watchdog_reboot(0, 0, 100u);
-            reply_ok();
+            if (bootsel) {
+                reset_usb_boot(0, 0);
+            }
+            watchdog_reboot(0, 0, 1u);
+            while (true) {
+                tight_loop_contents(); /* not fed: resets within 1 ms */
+            }
         } else {
             reply_err(what == NULL ? "missing-key" : "unknown-key");
         }
@@ -676,6 +692,7 @@ void tiles_usb_vendor_scan(void) {
         s_out_len = 0u; /* host gone: drop the reply rather than hand it to the next host */
         s_out_sent = 0u;
         s_listing = LISTING_NONE;
+        s_rx_len = 0u;
         return;
     }
     pump_out();
@@ -683,7 +700,9 @@ void tiles_usb_vendor_scan(void) {
         fill_listing(); /* buffer drained: the listing's next rows */
         pump_out();
     }
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     if (s_out_len > 0u || s_listing != LISTING_NONE) {
+        s_rx_idle_since_ms = now_ms; /* not reading: no partial-line timeout */
         return; /* still sending the previous reply: wait before the next command */
     }
     while (tud_vendor_available()) {
@@ -691,6 +710,7 @@ void tiles_usb_vendor_scan(void) {
         if (tud_vendor_read(&byte, 1) == 0) {
             break;
         }
+        s_rx_idle_since_ms = now_ms;
         if (byte == '\n' || byte == '\r') {
             if (s_rx_len > 0u) {
                 s_rx_line[s_rx_len] = '\0';
@@ -706,5 +726,8 @@ void tiles_usb_vendor_scan(void) {
         }
         /* Line longer than USB_VENDOR_LINE_MAX: drop bytes until the next
          * newline. No real command comes close, so it is malformed anyway. */
+    }
+    if (s_rx_len > 0u && now_ms - s_rx_idle_since_ms > USB_VENDOR_PARTIAL_LINE_MS) {
+        s_rx_len = 0u;
     }
 }

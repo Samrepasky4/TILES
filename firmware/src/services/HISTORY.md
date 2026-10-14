@@ -9590,3 +9590,23 @@ change. Search it by file or feature name.
      host can match lines to requests and skip leftovers from an earlier
      session, and `companion-app/src/main/usb.ts` now queues commands and
      tags each one, falling back to plain commands on older firmware.
+- **Found while flashing 0.3.7 (0.3.8, 2026-10-14).** Hardware checks on
+  units 2 and 4 turned up three more:
+  1. *A half-sent command poisoned the next one.* A test that wrote eight
+     tagged commands before reading stalled (the device stops reading
+     while a reply waits) and pyusb gave up 3 bytes short; the device kept
+     "@6 I" and glued it onto the next command, from any later session,
+     which a tagging host would wait on forever. usb_vendor.c now drops a
+     partial line after 1 s with nothing arriving while it waits for input.
+  2. *play_state didn't save during standby.* Its service sat after
+     op_mode's early return for standby, games and transpose, so a change
+     made just before standby waited for standby to end, or was lost at
+     power-off. It now runs first in `tiles_op_mode_scan()`.
+  3. *`REBOOT APP` never rebooted.* `watchdog_reboot(0, 0, 100)` returned to
+     the main loop, which feeds the watchdog every pass, so the 100 ms reset
+     never came (it replied OK and carried on). It now flushes the OK,
+     reboots with a 1 ms delay and spins unfed. Also `tiles_control.py test
+     mode <name>` upper-cased the mode name, which the device rejects.
+  Checked on both units: pipelined tagged commands (with a reader) answer in
+  order, each with its tag; the line after a stalled batch is answered;
+  drums saved within 3 s and restored after both a reflash and a REBOOT APP.
