@@ -170,6 +170,7 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0408 | `look.echo_flash_ms` | uint | 0 - 2000 (0 = no flash) | `180` | yes |
 | 0x0409 | `look.pressure_hue_degrees` | uint | 0 - 90 (0 = off) | `40` | yes |
 | 0x040A | `look.bend_dim_percent` | uint | 0 - 90 (0 = off) | `50` | yes |
+| 0x040B | `look.led_intensity_percent` | uint | 0 - 100 (0 = off) | `100` | yes |
 | 0x0500 | `midi.din_trs_type` | enum | `a`, `b` (TRS polarity of DIN MIDI OUT) | `a` | yes |
 | 0x0600 | `features.melodic_harmonics` | bool | | `1` | yes |
 | 0x0601 | `features.harmonics.arm_ms` | uint | 0 - 1000 (ms a struck note is held alone before other touches may pluck) | `150` | yes |
@@ -192,9 +193,11 @@ The `look.*` values are whole percent of the **fixed** LED brightness ceiling
 (50% USB-only / 90% external power) -- no setting can raise the ceiling itself.
 See `firmware/src/services/lighting.h` for what each tier is. Two act on
 touched pads in every mode: `look.pressure_hue_degrees` turns a pad's colour
-around the colour wheel by up to that many degrees at full pressure (white
-tints toward magenta instead), brightness unchanged, with MPE on only; `look.bend_dim_percent`
+toward Sentia blue (#94ABF9) by up to that many degrees at full pressure (white
+tints partway toward it instead), brightness unchanged, with MPE on only; `look.bend_dim_percent`
 is how much a bending pad's brightness falls at full bend (a smooth swell).
+`look.led_intensity_percent` scales the pads and underglow below the ceiling
+(the Feel menu's row 4 sets 0, 4, 16, 36, 64 or 100; 0 = off).
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually
 driving anything -- `services/power.h`'s own external-power confirmation

@@ -15,6 +15,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Square LED: HELD matches normal press feedback; TOGGLE_ON is the resting
  * glow while pitch bend is on, a little dimmer than a press ("less ... but
@@ -63,9 +64,9 @@ static float submenu_selected_pulse_level(uint32_t now_ms) {
     return SUBMENU_SELECTED_PULSE_MIN + (SUBMENU_SELECTED_PULSE_MAX - SUBMENU_SELECTED_PULSE_MIN) * raw;
 }
 
-/* Row 1 column 1 (haptics OFF) blinks when selected, so the menu shows the
- * parameter is off, not just low. A plain on/off blink, faster than the
- * MPE-off pulse. */
+/* Column 1 of a row with a real off (haptics, LEDs) blinks when selected,
+ * so the menu shows the parameter is off, not just low. A plain on/off
+ * blink, faster than the MPE-off pulse. */
 #define OFF_INDICATOR_BLINK_PERIOD_MS 500u
 
 #define EXPRESSION_SUBMENU_NUM_ROWS 4u
@@ -76,13 +77,21 @@ static float submenu_selected_pulse_level(uint32_t now_ms) {
 typedef enum {
     SUBMENU_ROW_HAPTICS = 0,
     SUBMENU_ROW_PITCH_BEND = 1,
-    SUBMENU_ROW_Y_AXIS = 2, /* reserved: stored, not used yet */
-    SUBMENU_ROW_AFTERTOUCH = 3,
+    SUBMENU_ROW_AFTERTOUCH = 2,
+    SUBMENU_ROW_LED_INTENSITY = 3,
 } submenu_row_t;
 
-/* Selected column (1-6) per row, all default 4. Row 1 (top) = haptics,
- * row 4 (bottom) = aftertouch. The single source of truth: pad taps and
- * square's "-"/"+" both change it through apply_row(). */
+/* LED intensity per column, percent of the power mode's ceiling: off, then
+ * steps that look even (brightness is seen on a roughly square law:
+ * (n/5)^2), up to full. Column 6 is the default. */
+static const uint8_t LED_INTENSITY_BY_COLUMN[EXPRESSION_SUBMENU_MAX_COLUMN] = {0u, 4u, 16u, 36u, 64u, 100u};
+#define LED_INTENSITY_DEFAULT_COLUMN EXPRESSION_SUBMENU_MAX_COLUMN
+
+/* Selected column (1-6) per row: 4 for rows 1-3, 6 for LED intensity. Row 1
+ * (top) = haptics, row 4 (bottom) = LED intensity. Pad taps and square's
+ * "-"/"+" both change it through apply_row(). LED intensity is a saved
+ * setting, so its row shows the column nearest the current value
+ * (selected_column()) rather than this. */
 static uint8_t s_row_column[EXPRESSION_SUBMENU_NUM_ROWS];
 
 /* s_submenu_sticky survives a square release once locked; s_submenu_visible
@@ -152,12 +161,34 @@ static void apply_row_pitch_bend(uint8_t column) {
     tiles_expression_set_pitch_bend_sensitivity(value);
 }
 
-/* Row 4: aftertouch full-scale depth (SMALLER is more sensitive). Column 4
+/* Row 3: aftertouch full-scale depth (SMALLER is more sensitive). Column 4
  * = 900, the calibrated default; columns 1 (1300) and 6 (600) are
  * unmeasured extensions. */
 static void apply_row_aftertouch(uint8_t column) {
     float value = piecewise_column_value(column, 1300.0f, 900.0f, 600.0f);
     tiles_expression_set_aftertouch_sensitivity((uint16_t)value);
+}
+
+/* Row 4: LED intensity, saved as look.led_intensity_percent. */
+static void apply_row_led_intensity(uint8_t column) {
+    tiles_lighting_set_look(TILES_LOOK_LED_INTENSITY_PERCENT, LED_INTENSITY_BY_COLUMN[column - 1u]);
+}
+
+/* The column a row shows as selected: for LED intensity, the nearest to the
+ * current (possibly restored) value. */
+static uint8_t selected_column(submenu_row_t row) {
+    if (row != SUBMENU_ROW_LED_INTENSITY) {
+        return s_row_column[row];
+    }
+    int percent = (int)tiles_lighting_get_look(TILES_LOOK_LED_INTENSITY_PERCENT);
+    uint8_t best = EXPRESSION_SUBMENU_MIN_COLUMN;
+    for (uint8_t col = EXPRESSION_SUBMENU_MIN_COLUMN; col <= EXPRESSION_SUBMENU_MAX_COLUMN; col++) {
+        if (abs(percent - (int)LED_INTENSITY_BY_COLUMN[col - 1u]) <
+            abs(percent - (int)LED_INTENSITY_BY_COLUMN[best - 1u])) {
+            best = col;
+        }
+    }
+    return best;
 }
 
 /* The one path for every edit (pad tap or square's "-"/"+"). */
@@ -170,20 +201,20 @@ static void apply_row(submenu_row_t row, uint8_t column) {
     case SUBMENU_ROW_PITCH_BEND:
         apply_row_pitch_bend(column);
         break;
-    case SUBMENU_ROW_Y_AXIS:
-        /* Reserved: stored, nothing to apply. */
-        break;
     case SUBMENU_ROW_AFTERTOUCH:
         apply_row_aftertouch(column);
+        break;
+    case SUBMENU_ROW_LED_INTENSITY:
+        apply_row_led_intensity(column);
         break;
     }
     printf("[expression_control] row %d column %u selected\n", (int)row, column);
 }
 
-/* Only row 1 has a real "off" (column 1); the others are just least
- * sensitive there. */
+/* Haptics and LED intensity have a real "off" (column 1); the others are
+ * just least sensitive there. */
 static bool row_column_is_off(submenu_row_t row, uint8_t column) {
-    return row == SUBMENU_ROW_HAPTICS && column == EXPRESSION_SUBMENU_MIN_COLUMN;
+    return (row == SUBMENU_ROW_HAPTICS || row == SUBMENU_ROW_LED_INTENSITY) && column == EXPRESSION_SUBMENU_MIN_COLUMN;
 }
 
 static void step_haptics_column(int8_t direction) {
@@ -201,6 +232,7 @@ void tiles_expression_control_init(void) {
     for (uint8_t i = 0; i < EXPRESSION_SUBMENU_NUM_ROWS; i++) {
         s_row_column[i] = EXPRESSION_SUBMENU_DEFAULT_COLUMN;
     }
+    s_row_column[SUBMENU_ROW_LED_INTENSITY] = LED_INTENSITY_DEFAULT_COLUMN;
     s_submenu_sticky = false;
     s_submenu_visible = false;
     s_circle_was_held = false;
@@ -217,12 +249,12 @@ void tiles_expression_control_init(void) {
     s_square_alone_was_held = false;
     s_submenu_toggle_fired = false;
     tiles_buttons_set_override_active(TILES_SQUARE_BUTTON_ID, true);
-    /* Apply each row's default once, so haptics.c/expression.c agree with
-     * column 4 from boot. */
+    /* Apply each row's default once, so haptics.c/expression.c/lighting.c
+     * agree with the menu from boot (saved settings load after this). */
     apply_row(SUBMENU_ROW_HAPTICS, EXPRESSION_SUBMENU_DEFAULT_COLUMN);
     apply_row(SUBMENU_ROW_PITCH_BEND, EXPRESSION_SUBMENU_DEFAULT_COLUMN);
-    apply_row(SUBMENU_ROW_Y_AXIS, EXPRESSION_SUBMENU_DEFAULT_COLUMN);
     apply_row(SUBMENU_ROW_AFTERTOUCH, EXPRESSION_SUBMENU_DEFAULT_COLUMN);
+    apply_row(SUBMENU_ROW_LED_INTENSITY, LED_INTENSITY_DEFAULT_COLUMN);
 }
 
 bool tiles_expression_control_owns_pad_grid(void) {
@@ -285,7 +317,7 @@ static void render_submenu(uint32_t now_ms) {
 
     for (uint8_t row = TILES_GRID_MIN_ROW + 1u; row <= TILES_GRID_MAX_ROW; row++) {
         submenu_row_t row_enum = (submenu_row_t)(row - 1u);
-        uint8_t selected_col = s_row_column[row - 1u];
+        uint8_t selected_col = selected_column(row_enum);
         bool off = row_column_is_off(row_enum, selected_col);
         for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
             uint8_t pad = board_pad_for_row_col(row, col);

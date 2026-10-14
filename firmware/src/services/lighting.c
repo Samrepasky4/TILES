@@ -4,6 +4,7 @@
 #include "crash_indicator.h"
 #include "debug_mode.h"
 #include "expression.h"
+#include "expression_control.h"
 #include "game_mode.h"
 #include "hall.h"
 #include "note_map.h"
@@ -70,14 +71,16 @@
  * The last step before a pad is written, in every mode (not games, the
  * sleep animation or the bench test), so a pad answers the same way
  * whatever colour it shows:
- *   - Pressure turns the pad's colour around the colour wheel by up to
- *     TILES_LIGHTING_PRESSURE_HUE_DEGREES at full pressure: the same angle
- *     for every colour, with saturation and brightness (HSV value) kept, so
- *     nothing gets brighter or draws more current. White and greys have no
- *     hue to turn; they take on a tint of PRESSURE_NEUTRAL_HUE_DEG (Sentia
- *     magenta, the "pressed" colour) instead, up to PRESSURE_NEUTRAL_SAT
- *     saturation, blended in as a colour's own saturation falls below
- *     PRESSURE_NEUTRAL_BELOW_SAT (no jump between the two).
+ *   - Pressure turns the pad's colour toward Sentia blue: its hue moves
+ *     toward PRESSURE_TARGET_HUE_DEG by up to
+ *     TILES_LIGHTING_PRESSURE_HUE_DEGREES at full pressure, the short way
+ *     round and never past it, with saturation and brightness (HSV value)
+ *     kept, so nothing gets brighter or draws more current. White and greys
+ *     have no hue to turn; they take on a tint of that blue instead, up to
+ *     PRESSURE_NEUTRAL_SAT saturation (partway: "not fully"), blended in as
+ *     a colour's own saturation falls below PRESSURE_NEUTRAL_BELOW_SAT (no
+ *     jump between the two). Pressed white used to go toward Sentia
+ *     magenta; blue reads better against the magenta landmarks.
  *     Pressure is the pad's Hall depth past the strike threshold, scaled to
  *     expression.aftertouch_sensitivity like MIDI pressure, so the light
  *     follows what the note does. Smoothed a little (PRESSURE_SMOOTHING).
@@ -97,7 +100,9 @@
  * (look.pressure_hue_degrees, look.bend_dim_percent); 0 turns either off. */
 #define TILES_LIGHTING_PRESSURE_HUE_DEGREES 40u
 #define TILES_LIGHTING_BEND_DIM 0.5f
-#define PRESSURE_NEUTRAL_HUE_DEG 300.0f
+/* Sentia blue: the brand periwinkle #94ABF9 (quick start guide, web
+ * player), hue ~226 degrees. */
+#define PRESSURE_TARGET_HUE_DEG 226.0f
 /* Neutral tint saturation at full pressure, for the default hue amount
  * (scaled with look.pressure_hue_degrees, so one setting moves both). */
 #define PRESSURE_NEUTRAL_SAT 0.45f
@@ -121,6 +126,7 @@ static uint16_t s_look[TILES_LOOK_COUNT] = {
     [TILES_LOOK_ECHO_FLASH_MS] = TILES_LIGHTING_ECHO_FLASH_MS,
     [TILES_LOOK_PRESSURE_HUE_DEGREES] = TILES_LIGHTING_PRESSURE_HUE_DEGREES,
     [TILES_LOOK_BEND_DIM_PERCENT] = LOOK_PCT(TILES_LIGHTING_BEND_DIM),
+    [TILES_LOOK_LED_INTENSITY_PERCENT] = 100u,
 };
 
 #define TILES_LOOK_MAX_FLASH_MS 2000u
@@ -207,6 +213,9 @@ uint16_t tiles_lighting_get_look(tiles_look_param_t param) {
     return param < TILES_LOOK_COUNT ? s_look[param] : 0u;
 }
 
+static void write_underglow(void);
+static bool s_initialized;
+
 void tiles_lighting_set_look(tiles_look_param_t param, uint16_t value) {
     if (param >= TILES_LOOK_COUNT) {
         return;
@@ -214,7 +223,23 @@ void tiles_lighting_set_look(tiles_look_param_t param, uint16_t value) {
     uint16_t max = param == TILES_LOOK_ECHO_FLASH_MS          ? TILES_LOOK_MAX_FLASH_MS
                    : param == TILES_LOOK_PRESSURE_HUE_DEGREES ? 90u
                                                                : 100u;
+    uint16_t old = s_look[param];
     s_look[param] = value > max ? max : value;
+    /* Pads pick a new intensity up on the round-robin; the underglow is only
+     * written on change, so push it now. */
+    if (param == TILES_LOOK_LED_INTENSITY_PERCENT && s_look[param] != old && s_initialized) {
+        write_underglow();
+    }
+}
+
+/* LED intensity (Feel menu row 4) as a factor, 1 while the Feel menu is
+ * open so it stays readable at "off". Applies to the pads and the normal
+ * underglow, not to the underglow indicators (crash, debug, captures). */
+static float led_intensity(void) {
+    if (tiles_expression_control_owns_pad_grid()) {
+        return 1.0f;
+    }
+    return look_fraction(TILES_LOOK_LED_INTENSITY_PERCENT);
 }
 
 /* Underglow's own fixed brightness (out of 255), NOT scaled by the power
@@ -264,7 +289,6 @@ static float s_pad_press[TILES_NUM_PADS]; /* touch-driven, white, floored at the
 static tiles_rgb01_t s_pad_standby_rgb[TILES_NUM_PADS]; /* standby color, no floor */
 static tiles_rgb01_t s_underglow_rgb[TILES_LIGHTING_NUM_UNDERGLOW_PIXELS];
 static uint8_t s_service_cursor;
-static bool s_initialized;
 /* Bench test white level (0-255), 0 = off. See tiles_lighting_set_test_white(). */
 static uint8_t s_test_white_level;
 static uint8_t s_test_white_percent;
@@ -398,11 +422,14 @@ static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
     if (p > PAD_FX_EPSILON && hue_degrees > 0.0f) {
         float h, s, v;
         rgb_to_hsv((tiles_rgb01_t){clamp01(c.r), clamp01(c.g), clamp01(c.b)}, &h, &s, &v);
-        tiles_rgb01_t turned = hsv_to_rgb(h + p * hue_degrees, s, v);
+        /* Toward the target hue, the short way, never past it. */
+        float gap = fmodf(PRESSURE_TARGET_HUE_DEG - h + 540.0f, 360.0f) - 180.0f; /* -180..180 */
+        float turn = fminf(fabsf(gap), p * hue_degrees);
+        tiles_rgb01_t turned = hsv_to_rgb(h + (gap < 0.0f ? -turn : turn), s, v);
         float neutral = 1.0f - clamp01(s / PRESSURE_NEUTRAL_BELOW_SAT);
         if (neutral > 0.0f) {
             float tint_sat = clamp01(p * PRESSURE_NEUTRAL_SAT * hue_degrees / (float)TILES_LIGHTING_PRESSURE_HUE_DEGREES);
-            tiles_rgb01_t tint = hsv_to_rgb(PRESSURE_NEUTRAL_HUE_DEG, tint_sat, v);
+            tiles_rgb01_t tint = hsv_to_rgb(PRESSURE_TARGET_HUE_DEG, tint_sat, v);
             turned.r += neutral * (tint.r - turned.r);
             turned.g += neutral * (tint.g - turned.g);
             turned.b += neutral * (tint.b - turned.b);
@@ -518,10 +545,10 @@ static void write_pad(uint8_t pad_index /* 0-23 */) {
         pixel = tiles_sk6805_pack_rgb(s_test_white_level, s_test_white_level, s_test_white_level);
     } else {
         tiles_rgb01_t desired = apply_pad_fx(pad_index, pad_desired_rgb(pad_index));
-        uint8_t ceiling = static_ceiling_level();
-        uint8_t r = (uint8_t)((float)ceiling * clamp01(desired.r));
-        uint8_t g = (uint8_t)((float)ceiling * clamp01(desired.g));
-        uint8_t b = (uint8_t)((float)ceiling * clamp01(desired.b));
+        float scale = (float)static_ceiling_level() * led_intensity();
+        uint8_t r = (uint8_t)(scale * clamp01(desired.r));
+        uint8_t g = (uint8_t)(scale * clamp01(desired.g));
+        uint8_t b = (uint8_t)(scale * clamp01(desired.b));
         pixel = tiles_sk6805_pack_rgb(r, g, b);
     }
 
@@ -653,8 +680,9 @@ static void write_underglow(void) {
     uint32_t pixels[TILES_LIGHTING_NUM_UNDERGLOW_PIXELS];
     for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
         const tiles_rgb01_t *c = &s_underglow_rgb[i];
-        pixels[i] = tiles_sk6805_pack_rgb(underglow_channel_level(c->r), underglow_channel_level(c->g),
-                                           underglow_channel_level(c->b));
+        float k = led_intensity();
+        pixels[i] = tiles_sk6805_pack_rgb(underglow_channel_level(c->r * k), underglow_channel_level(c->g * k),
+                                           underglow_channel_level(c->b * k));
     }
     /* Same 'w'/'x' marks as write_pad(). */
     tiles_debug_trace('w');

@@ -101,6 +101,7 @@ LOOK_ENTRY(echo_b, TILES_LOOK_ECHO_SECONDARY_B_PERCENT)
 LOOK_ENTRY(echo_flash, TILES_LOOK_ECHO_FLASH_MS)
 LOOK_ENTRY(pressure_hue, TILES_LOOK_PRESSURE_HUE_DEGREES)
 LOOK_ENTRY(bend_dim, TILES_LOOK_BEND_DIM_PERCENT)
+LOOK_ENTRY(led_intensity, TILES_LOOK_LED_INTENSITY_PERCENT)
 
 /* ---- colour scheme and custom pad colours (lighting.h) ---- */
 _Static_assert(TILES_LIGHTING_COLOR_NONE == TILES_COLOR_NONE, "lighting and settings must agree on 'none'");
@@ -201,6 +202,10 @@ static const tiles_setting_def_t TABLE[] = {
                   get_look_pressure_hue, set_look_pressure_hue),
     TILES_SETTING(0x040A, "look.bend_dim_percent", TILES_SETTING_UINT, {.u = 0}, {.u = 90}, NULL,
                   get_look_bend_dim, set_look_bend_dim),
+    /* Pads and underglow, percent of the power mode's ceiling (Feel menu row
+     * 4: 0, 4, 16, 36, 64, 100); 0 = off. */
+    TILES_SETTING(0x040B, "look.led_intensity_percent", TILES_SETTING_UINT, {.u = 0}, {.u = 100}, NULL,
+                  get_look_led_intensity, set_look_led_intensity),
     /* MIDI */
     TILES_SETTING(0x0500, "midi.din_trs_type", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, DIN_TYPE_NAMES, get_din_type,
                   set_din_type),

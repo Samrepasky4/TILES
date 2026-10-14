@@ -9657,3 +9657,18 @@ change. Search it by file or feature name.
   amount, to 50% at full bend, eased over 60 ms each way. The setting kept
   its id (0x040A, settings are saved by id) and is now
   look.bend_dim_percent.
+- **Pressure tints toward Sentia blue; Feel menu row 4 = LED intensity
+  (0.4.3, 2026-10-14).** Real feedback: "make the hue shift to sentia blue
+  not sentia pink. but not fully. make the feel settings change, so row 4 is
+  now led intensity with the default being full available, and lowest off,
+  move pressure to row 3." Pressure now moves a pad's hue toward Sentia
+  blue (the brand periwinkle #94ABF9, ~226 degrees) by up to 40 degrees, the
+  short way and never past it; white tints partway toward it (up to 45%
+  saturation). Feel menu: the reserved Y-axis row 3 is gone; row 3 is
+  pressure (aftertouch) sensitivity, row 4 LED intensity, columns 0, 4, 16,
+  36, 64, 100% of the ceiling (even-looking steps), column 6 the default,
+  column 1 off (blinks like haptics off). It's a saved setting
+  (look.led_intensity_percent, 0x040B), so the row shows the column nearest
+  the restored value. Pads and the normal underglow only (button LEDs and
+  the underglow indicators are untouched), and the Feel menu itself always
+  shows at full brightness, so "off" can be undone.

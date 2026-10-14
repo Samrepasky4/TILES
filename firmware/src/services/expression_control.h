@@ -28,13 +28,16 @@
  * and shows 4 rows of 6-pad sliders:
  *   row 1 (top)    haptics intensity (services/haptics.c)
  *   row 2          pitch bend sensitivity (services/expression.c)
- *   row 3          reserved for a future Y axis (stored, not used yet)
- *   row 4 (bottom) aftertouch sensitivity (services/expression.c)
- * Tapping a pad selects that column (1-6) and applies it at once
- * (piecewise_column_value() maps columns to values for every row). Column
- * 4 is each row's default, 5-6 stronger, 2-3 weaker. Row 1 column 1 is
- * haptics OFF and blinks when selected. The selected pad pulses white (the
- * menu standard); the others sit at a dim magenta.
+ *   row 3          pressure (aftertouch) sensitivity (services/expression.c)
+ *   row 4 (bottom) LED intensity (services/lighting.c look.led_intensity_percent)
+ * Tapping a pad selects that column (1-6) and applies it at once. Rows 1-3:
+ * column 4 is the default, 5-6 stronger, 2-3 weaker
+ * (piecewise_column_value()). Row 4: column 6 (the default) is the full
+ * brightness the power mode allows, column 1 is off. Column 1 of rows 1
+ * and 4 is a real OFF and blinks when selected. The selected pad pulses
+ * white (the menu standard); the others sit at a dim magenta. The menu
+ * itself always shows at full brightness, so LEDs set to off can be turned
+ * back on.
  *
  * While visible, expression.c starts no NEW strikes (a tap only moves a
  * slider; notes already sounding finish normally), and octave_control.c
