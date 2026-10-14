@@ -9679,3 +9679,15 @@ change. Search it by file or feature name.
   pass, full while the Feel menu is open); a change redraws all six from
   that memory, since some owners only draw their LED on change. A PCA9685
   resync also restores every LED from it instead of waiting for owners.
+- **Volca mode (0.5.0, 2026-10-14).** Asked: "add a new mode that works like
+  drum mode but runs on each channel sending a C note so I can use it with
+  my Volca Sample with beta7 custom firmware, call it volca mode ... its
+  color is purple ... this mode only overrides MIDI functionality,
+  assigning each pad from the drum selector a different MIDI channel." Built
+  as drum mode with a routing flag, not a separate mode: same pattern,
+  gestures and saving. Drum k from C1 (bank 1's eight, then bank 2's) plays
+  C4 (MIDI 60) on channel k (1-16); past 16, nothing. Purple where drum
+  mode is lime (menu pad, underglow, armed steps, bank shades). Menu: row 2
+  pad 2, next to bass. Switching routing ends sounding notes on the old one
+  first. play_state saves it as mode 7; it survives a crash with the mode.
+  The pattern is shared with drum mode. Not in the guide yet (asked).

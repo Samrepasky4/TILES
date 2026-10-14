@@ -43,8 +43,8 @@
 #define TILES_USB_PID 0x0001u
 
 #define TILES_FW_VERSION_MAJOR 0u
-#define TILES_FW_VERSION_MINOR 4u
-#define TILES_FW_VERSION_PATCH 4u
+#define TILES_FW_VERSION_MINOR 5u
+#define TILES_FW_VERSION_PATCH 0u
 
 /* 0xJJMN, binary-coded decimal: major.minor.patch. */
 #define TILES_USB_BCD_DEVICE \

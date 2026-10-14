@@ -114,9 +114,47 @@ static uint32_t now_ms(void) {
 
 /* ---- the player's MIDI output ---- */
 
+/* Drum Rack (channel 10, the drum's own note) or Volca (drum_seq.h). */
+static bool s_volca;
+
+/* Volca: the drum's MIDI channel (0-15) from its Drum Rack note; false past
+ * channel 16 or below C1. */
+static bool volca_channel(uint8_t note, uint8_t *channel) {
+    if (note < TILES_DRUM_FIRST_NOTE || note - TILES_DRUM_FIRST_NOTE >= 16u) {
+        return false;
+    }
+    *channel = (uint8_t)(note - TILES_DRUM_FIRST_NOTE);
+    return true;
+}
+
+static void drum_midi_on(uint8_t note, uint8_t velocity) {
+    uint8_t channel;
+    if (!s_volca) {
+        tiles_midi_note_on(TILES_MIDI_CH_DRUMS, note, velocity);
+    } else if (volca_channel(note, &channel)) {
+        tiles_midi_note_on(channel, TILES_VOLCA_NOTE, velocity);
+    }
+}
+
+static void drum_midi_off(uint8_t note) {
+    uint8_t channel;
+    if (!s_volca) {
+        tiles_midi_note_off(TILES_MIDI_CH_DRUMS, note, 0u);
+    } else if (volca_channel(note, &channel)) {
+        tiles_midi_note_off(channel, TILES_VOLCA_NOTE, 0u);
+    }
+}
+
+/* The mode's color: lime, or purple in Volca mode. */
+static void mode_color(float *r, float *g, float *b) {
+    *r = s_volca ? TILES_VOLCA_COLOR_R : TILES_DRUM_SEQ_COLOR_R;
+    *g = s_volca ? TILES_VOLCA_COLOR_G : TILES_DRUM_SEQ_COLOR_G;
+    *b = s_volca ? TILES_VOLCA_COLOR_B : TILES_DRUM_SEQ_COLOR_B;
+}
+
 static void out_note_on(uint8_t note, uint8_t velocity, void *ctx) {
     (void)ctx;
-    tiles_midi_note_on(TILES_MIDI_CH_DRUMS, note, velocity);
+    drum_midi_on(note, velocity);
     uint32_t now = now_ms();
     for (uint8_t v = 0; v < TILES_DRUM_VOICES; v++) {
         if (tiles_drum_note(s_bank, v) == note) {
@@ -140,7 +178,7 @@ static void out_note_on(uint8_t note, uint8_t velocity, void *ctx) {
 
 static void out_note_off(uint8_t note, void *ctx) {
     (void)ctx;
-    tiles_midi_note_off(TILES_MIDI_CH_DRUMS, note, 0u);
+    drum_midi_off(note);
 }
 
 static uint32_t out_random(void *ctx) {
@@ -175,7 +213,7 @@ static void end_live_notes(void) {
     step_roll_end();
     for (uint8_t v = 0; v < TILES_DRUM_VOICES; v++) {
         if (s_drum_sounding[v]) {
-            tiles_midi_note_off(TILES_MIDI_CH_DRUMS, s_drum_sounding_note[v], 0u);
+            drum_midi_off(s_drum_sounding_note[v]);
             tiles_haptics_stop(tiles_drum_pad_for_voice(v));
             s_drum_sounding[v] = false;
         }
@@ -226,6 +264,19 @@ void tiles_drum_seq_init(const tiles_kv_ops_t *ops) {
     }
     s_all_cleared_ms = 0u;
     resync_touches();
+}
+
+void tiles_drum_seq_set_volca(bool volca) {
+    if (volca == s_volca) {
+        return;
+    }
+    end_live_notes();
+    tiles_drum_player_end_all(&s_player, &s_out);
+    s_volca = volca;
+}
+
+bool tiles_drum_seq_is_volca(void) {
+    return s_volca;
 }
 
 void tiles_drum_seq_enter(void) {
@@ -357,10 +408,10 @@ tiles_drum_seq_store_info_t tiles_drum_seq_get_store_info(void) {
 
 static void drum_hit(uint8_t voice, uint8_t pad, uint8_t velocity) {
     if (s_drum_sounding[voice]) {
-        tiles_midi_note_off(TILES_MIDI_CH_DRUMS, s_drum_sounding_note[voice], 0u);
+        drum_midi_off(s_drum_sounding_note[voice]);
     }
     uint8_t note = tiles_drum_note(s_bank, voice);
-    tiles_midi_note_on(TILES_MIDI_CH_DRUMS, note, velocity);
+    drum_midi_on(note, velocity);
     tiles_haptics_trigger_kick(pad, velocity);
     s_drum_sounding[voice] = true;
     s_drum_sounding_note[voice] = note;
@@ -413,7 +464,7 @@ static void handle_drum_pad(uint8_t voice, uint8_t pad, bool touched, bool was, 
         }
     } else if (was) {
         if (s_drum_sounding[voice]) {
-            tiles_midi_note_off(TILES_MIDI_CH_DRUMS, s_drum_sounding_note[voice], 0u);
+            drum_midi_off(s_drum_sounding_note[voice]);
             tiles_haptics_stop(pad);
             s_drum_sounding[voice] = false;
         }
@@ -507,9 +558,10 @@ void tiles_drum_seq_handle_input(uint32_t now) {
 
 /* ---- rendering ---- */
 
-/* Each bank of 8 drums has its own green on the drum pads, so a new set
- * reads as new: lime (the first bank, the mode's color), a darker green,
- * a cooler green, olive, then around again. */
+/* Each bank of 8 drums has its own shade of the mode's color on the drum
+ * pads, so a new set reads as new. Drum mode: lime (the first bank), a
+ * darker green, a cooler green, olive. Volca mode: purple, a darker
+ * purple, a pinker one, a bluer one. Then around again. */
 static void bank_green(float level, float *r, float *g, float *b) {
     static const float GREENS[4][3] = {
         {TILES_DRUM_SEQ_COLOR_R, TILES_DRUM_SEQ_COLOR_G, TILES_DRUM_SEQ_COLOR_B},
@@ -517,10 +569,17 @@ static void bank_green(float level, float *r, float *g, float *b) {
         {0.0f, 1.0f, 0.45f},
         {0.25f, 0.45f, 0.0f},
     };
+    static const float PURPLES[4][3] = {
+        {TILES_VOLCA_COLOR_R, TILES_VOLCA_COLOR_G, TILES_VOLCA_COLOR_B},
+        {0.3f, 0.0f, 0.5f},
+        {0.85f, 0.1f, 1.0f},
+        {0.35f, 0.15f, 1.0f},
+    };
+    const float (*shades)[3] = s_volca ? PURPLES : GREENS;
     uint8_t i = (uint8_t)((((int)s_bank % 4) + 4) % 4);
-    *r = GREENS[i][0] * level;
-    *g = GREENS[i][1] * level;
-    *b = GREENS[i][2] * level;
+    *r = shades[i][0] * level;
+    *g = shades[i][1] * level;
+    *b = shades[i][2] * level;
 }
 
 static float slow_pulse(uint32_t now, float period_ms, float lo, float hi) {
@@ -557,8 +616,9 @@ static void render_buttons(uint32_t now, float beat_flash, float diamond_led, bo
 
 static void render_underglow(void) {
     for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, TILES_DRUM_SEQ_COLOR_R, TILES_DRUM_SEQ_COLOR_G,
-                                                 TILES_DRUM_SEQ_COLOR_B);
+        float r, g, b;
+        mode_color(&r, &g, &b);
+        tiles_lighting_set_standby_underglow_rgb(i, r, g, b);
     }
 }
 
@@ -592,8 +652,9 @@ void tiles_drum_seq_render(uint32_t now, float beat_flash, float diamond_led, bo
             float level = DRUM_STEP_ARMED_LEVEL * (0.3f + 0.7f * (float)s_pattern.probability[note][step] / 100.0f);
             float blue = DRUM_STEP_ARMED_LEVEL * (float)(s_pattern.ratchet[note][step] - 1u) /
                          (float)(TILES_DRUM_MAX_RATCHET - 1u);
-            tiles_lighting_set_standby_pad_rgb(pad, TILES_DRUM_SEQ_COLOR_R * level, TILES_DRUM_SEQ_COLOR_G * level,
-                                               blue);
+            float r, g, b;
+            mode_color(&r, &g, &b);
+            tiles_lighting_set_standby_pad_rgb(pad, r * level, g * level, fmaxf(b * level, blue));
         } else {
             tiles_lighting_set_standby_pad_rgb(pad, 0.0f, 0.0f, 0.0f);
         }

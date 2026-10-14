@@ -54,7 +54,8 @@ typedef enum {
 
 /* Mode menu: one pad per mode on row 1 (nearest the buttons), each its own
  * color, like the game menu. Column order: melodic, sequencer, drums,
- * chord, Song, Ableton; bass guitar is the first pad of row 2 (pad 7). */
+ * chord, Song, Ableton; bass guitar is the first pad of row 2 (pad 7), Volca
+ * (drum mode for a Volca Sample, drum_seq.h) the second (pad 8). */
 #define OP_MENU_ROW 1u
 #define OP_MENU_COL_MELODIC 1u
 #define OP_MENU_COL_SEQUENCER 2u
@@ -64,6 +65,10 @@ typedef enum {
 #define OP_MENU_COL_SCENE_LAUNCH 6u
 #define OP_MENU_GUITAR_ROW 2u
 #define OP_MENU_GUITAR_COL 1u
+#define OP_MENU_VOLCA_ROW 2u
+#define OP_MENU_VOLCA_COL 2u
+/* Volca mode in play_state's saved mode number (past the real modes). */
+#define OP_PLAY_STATE_VOLCA 7u
 
 /* Mode colors: melodic = Sentia magenta, sequencer = red, bass guitar =
  * amber (matches its fretboard), chord = blue (matches its chord strip). */
@@ -169,6 +174,10 @@ static bool s_menu_visible;
  * lift, so the picking pad can't start a note in the new mode. */
 static bool s_menu_pending;
 static tiles_op_mode_t s_menu_pending_mode;
+/* Drum mode's Volca routing (drum_seq.h): on in Volca mode. Kept across a
+ * crash like s_active_mode; the pending pick carries it until release. */
+static bool __uninitialized_ram(s_volca_mode);
+static bool s_menu_pending_volca;
 
 /* Triangle's LED sometimes showed lit right after boot despite being set
  * off at init (cause not found; likely a PCA9685 power-on glitch). So the
@@ -1278,7 +1287,7 @@ static bool col_is_current_mode(uint8_t col) {
     case OP_MENU_COL_SEQUENCER:
         return mode == OP_MODE_SEQUENCER;
     case OP_MENU_COL_DRUM:
-        return mode == OP_MODE_DRUM;
+        return mode == OP_MODE_DRUM && !(s_menu_pending ? s_menu_pending_volca : s_volca_mode);
     case OP_MENU_COL_CHORD:
         return mode == OP_MODE_CHORD;
     case OP_MENU_COL_SONG:
@@ -1314,6 +1323,16 @@ static void render_menu(uint32_t now_ms) {
                     r = OP_MENU_GUITAR_R * OP_SCALE_AVAILABLE_LEVEL;
                     g = OP_MENU_GUITAR_G * OP_SCALE_AVAILABLE_LEVEL;
                     b = OP_MENU_GUITAR_B * OP_SCALE_AVAILABLE_LEVEL;
+                }
+            } else if (row == OP_MENU_VOLCA_ROW && col == OP_MENU_VOLCA_COL) {
+                tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
+                bool volca = s_menu_pending ? s_menu_pending_volca : s_volca_mode;
+                if (mode == OP_MODE_DRUM && volca) {
+                    r = g = b = pulse;
+                } else {
+                    r = TILES_VOLCA_COLOR_R * OP_SCALE_AVAILABLE_LEVEL;
+                    g = TILES_VOLCA_COLOR_G * OP_SCALE_AVAILABLE_LEVEL;
+                    b = TILES_VOLCA_COLOR_B * OP_SCALE_AVAILABLE_LEVEL;
                 }
             }
             tiles_lighting_set_standby_pad_rgb(board_pad_for_row_col(row, col), r, g, b);
@@ -1932,6 +1951,12 @@ static void scene_end_capture(void); /* used by handle_diamond_transport() */
 #define OP_SCENE_TRACK_COL_MAX 5u
 static uint8_t s_scene_track_offset;
 
+/* Drum mode's routing: Drum Rack on channel 10, or Volca (drum_seq.h). */
+static void set_volca(bool volca) {
+    s_volca_mode = volca;
+    tiles_drum_seq_set_volca(volca);
+}
+
 static void set_active_mode(tiles_op_mode_t mode) {
     if (s_song_capture_active && mode != s_active_mode) {
         /* Any real mode change ends Song capture. */
@@ -2344,11 +2369,19 @@ static void handle_menu_taps(void) {
                     mode = OP_MODE_SCENE_LAUNCH;
                 }
                 s_menu_pending_mode = mode;
+                s_menu_pending_volca = false;
                 s_menu_pending = true;
             }
             if (!s_menu_pending && row == OP_MENU_GUITAR_ROW && col == OP_MENU_GUITAR_COL && touched &&
                 (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
                 s_menu_pending_mode = OP_MODE_GUITAR;
+                s_menu_pending_volca = false;
+                s_menu_pending = true;
+            }
+            if (!s_menu_pending && row == OP_MENU_VOLCA_ROW && col == OP_MENU_VOLCA_COL && touched &&
+                (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
+                s_menu_pending_mode = OP_MODE_DRUM;
+                s_menu_pending_volca = true;
                 s_menu_pending = true;
             }
             s_menu_prev_pad_touched[pad - 1u] = touched;
@@ -2358,6 +2391,9 @@ static void handle_menu_taps(void) {
         tiles_op_mode_t mode = s_menu_pending_mode;
         s_menu_pending = false;
         menu_exit();
+        if (mode == OP_MODE_DRUM) {
+            set_volca(s_menu_pending_volca);
+        }
         set_active_mode(mode);
     }
 }
@@ -2963,7 +2999,9 @@ uint32_t tiles_op_mode_incoming_note_age_ms(uint8_t layer, uint8_t note) {
 void tiles_op_mode_init(bool crash_recovered) {
     if (!crash_recovered) {
         s_active_mode = OP_MODE_MELODIC;
+        s_volca_mode = false;
     }
+    s_menu_pending_volca = false;
     s_menu_visible = false;
     s_menu_pending = false;
     s_triangle_was_held = false;
@@ -3036,6 +3074,7 @@ void tiles_op_mode_init(bool crash_recovered) {
     /* Drum sequencer: its saved pattern, stopped (running isn't kept across a
      * crash). */
     tiles_drum_seq_init(tiles_storage_drum_region_safe() ? tiles_storage_drum_ops() : NULL);
+    tiles_drum_seq_set_volca(s_volca_mode);
 
     /* Register Ableton mode's SysEx callback (harmless if never used). */
     scene_launch_init();
@@ -3044,8 +3083,13 @@ void tiles_op_mode_init(bool crash_recovered) {
 
     /* Fresh boot: the mode from before power-off (services/play_state.c). */
     uint8_t saved_mode;
-    if (!crash_recovered && tiles_play_state_boot_mode(&saved_mode) && saved_mode <= (uint8_t)OP_MODE_DRUM) {
-        set_active_mode((tiles_op_mode_t)saved_mode);
+    if (!crash_recovered && tiles_play_state_boot_mode(&saved_mode)) {
+        if (saved_mode == OP_PLAY_STATE_VOLCA) {
+            set_volca(true);
+            set_active_mode(OP_MODE_DRUM);
+        } else if (saved_mode <= (uint8_t)OP_MODE_DRUM) {
+            set_active_mode((tiles_op_mode_t)saved_mode);
+        }
     }
 
     if (crash_recovered) {
@@ -3071,7 +3115,8 @@ void tiles_op_mode_scan(void) {
     /* Mode, scale, key and octave, for the next power-up. Before the early
      * return below, so standby (or a game, or transpose) can't hold up a
      * save until the power is pulled. */
-    tiles_play_state_service(now_ms, (uint8_t)s_active_mode, tiles_midi_clock_is_running(), !any_pad_touched());
+    uint8_t saved_mode = (s_active_mode == OP_MODE_DRUM && s_volca_mode) ? OP_PLAY_STATE_VOLCA : (uint8_t)s_active_mode;
+    tiles_play_state_service(now_ms, saved_mode, tiles_midi_clock_is_running(), !any_pad_touched());
 
     /* Boot guard: keep triangle's LED off for a moment (see
      * s_boot_relight_guard_until_ms). A no-op while a menu owns the LED. */
@@ -3284,13 +3329,16 @@ bool tiles_op_mode_test_set_mode(const char *name) {
         tiles_op_mode_t mode;
     } MODES[] = {{"melodic", OP_MODE_MELODIC}, {"chord", OP_MODE_CHORD},   {"sequencer", OP_MODE_SEQUENCER},
                  {"bass", OP_MODE_GUITAR},     {"song", OP_MODE_SONG},     {"ableton", OP_MODE_SCENE_LAUNCH},
-                 {"drums", OP_MODE_DRUM}};
+                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM}};
     for (size_t i = 0; i < sizeof(MODES) / sizeof(MODES[0]); i++) {
         if (strcmp(name, MODES[i].name) == 0) {
             if (s_menu_visible) {
                 menu_exit();
             }
             s_scale_menu_visible = false;
+            if (MODES[i].mode == OP_MODE_DRUM) {
+                set_volca(strcmp(name, "volca") == 0);
+            }
             set_active_mode(MODES[i].mode);
             return true;
         }

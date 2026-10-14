@@ -48,6 +48,22 @@
 #define TILES_DRUM_SEQ_COLOR_G 1.0f
 #define TILES_DRUM_SEQ_COLOR_B 0.0f
 
+/* Volca mode: this same drum mode (same pattern, gestures and saving) for a
+ * Volca Sample on multi-channel firmware (one part per MIDI channel): drum
+ * k (the k-th from C1: the first bank's eight, then the next bank's) plays
+ * C (TILES_VOLCA_NOTE) on MIDI channel k, 1-16, instead of its Drum Rack
+ * note on channel 10. Drums past channel 16 send nothing. Purple where drum
+ * mode is lime. op_mode.c's menu turns it on and off. */
+#define TILES_VOLCA_NOTE 60u /* C4: the sample at its own pitch */
+#define TILES_VOLCA_COLOR_R 0.6f
+#define TILES_VOLCA_COLOR_G 0.0f
+#define TILES_VOLCA_COLOR_B 1.0f
+
+/* Switches the drum output between Drum Rack (false) and Volca (true).
+ * Notes still sounding are ended first, on the routing they started on. */
+void tiles_drum_seq_set_volca(bool volca);
+bool tiles_drum_seq_is_volca(void);
+
 /* Loads the saved pattern. ops NULL: no flash region, nothing saved. */
 void tiles_drum_seq_init(const tiles_kv_ops_t *ops);
 

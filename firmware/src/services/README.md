@@ -40,7 +40,7 @@ before re-tuning a constant or reviving an approach that was dropped.
 |---|---|
 | `op_mode` | Mode menu and the modes: melodic, sequencer, bass guitar, chord, Song (beta), Ableton, drums. Scale picker, pattern bank, captures, Live transport. The button map is in `op_mode.h`. |
 | `play_state` | Mode, scale, key and octave saved to flash (through `storage/log_store`, never erasing while the clock runs) and restored at power-up. Tested natively. |
-| `drum_seq` | Drum mode: 16 or 32 steps (two pages, diamond flips) on columns 1-4, 8 drums on columns 5-6 (tap selects, push plays, circle + push rolls), banks of 8 in Drum Rack order, MIDI channel 10, saved through `storage/log_store`. The step engine, layout and save format are `drum_pattern` (no hardware; tested). |
+| `drum_seq` | Drum mode (and Volca mode: the same, each drum a C on its own MIDI channel 1-16, purple): 16 or 32 steps (two pages, diamond flips) on columns 1-4, 8 drums on columns 5-6 (tap selects, push plays, circle + push rolls), banks of 8 in Drum Rack order, MIDI channel 10, saved through `storage/log_store`. The step engine, layout and save format are `drum_pattern` (no hardware; tested). |
 | `octave_control` | "-"/"+" octave shift and transpose mode. |
 | `expression_control` | Square: pitch bend toggle, expression menu; circle + square: MPE on/off. |
 | `lighting` | Pad LEDs and underglow; power-derived brightness ceiling; idle colors by note role; indicator priority on the underglow; on touched pads, every mode: hue turns toward Sentia blue with pressure, brightness swells down with bend; LED intensity (Feel menu row 4) scales pads, underglow and button LEDs. |
