@@ -9634,3 +9634,20 @@ change. Search it by file or feature name.
   faster wave keeps several samples per cycle. With MPE off, pressure is
   one channel-wide value, so the pads don't show it (the flutter stays).
   0.3.9 + 1 would be 0.3.10, which the one-digit USB bcdDevice can't hold.
+  Measured on unit 2 while playing: loop ~3.0-3.3 ms (max ~4.3) against
+  ~2.1-2.3 ms idle, because the live rewrites came on top of the
+  round-robin's pad write each pass, and one pad write is ~0.7 ms (four
+  TCA9554 writes on I2C plus the SK6805's 300 us latch). Now a due live pad
+  takes the pass's single pad write and the round-robin waits.
+- **The resting-finger fix swallowed quick repeated presses (0.4.1,
+  2026-10-14).** Real feedback: "the retrigger thing you implemented is
+  rejecting some of the presses". Both 0.3.7 rules read the pad's Hall
+  depth after the finger leaves, but hall.c only re-reads an untouched pad
+  in its background round-robin (~50 ms), so the depth froze at the last
+  pressed reading: a real lift looked like a dropout over a held key (the
+  note was kept, and a quick re-press landed on it), and the key coming
+  up was never seen (the re-press waited for it). hall.c now keeps reading
+  a released pad every call until its depth is below
+  TILES_HALL_KEY_UP_DEPTH (100) or 300 ms pass, usually one to three
+  extra reads per release. "Up" is that level, not <= 40: bare contact
+  reads up to ~96, so a finger left lightly on a pad couldn't re-arm it.

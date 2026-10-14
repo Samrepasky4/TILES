@@ -6,8 +6,12 @@
  *
  * Touched pads (services/touch.h) are read every call; untouched pads
  * round-robin one per call. Round-robin alone reaches a pad only every ~24
- * calls (~240 ms), far too slow to see a 30-80 ms strike, which
- * services/expression.c needs for velocity.
+ * calls (~50 ms), far too slow to see a 30-80 ms strike, which
+ * services/expression.c needs for velocity. A pad just released is also
+ * read every call until it reads below TILES_HALL_KEY_UP_DEPTH (the key
+ * came back up) or TILES_HALL_RELEASE_FOLLOW_MS passes: otherwise its depth
+ * stays at the last pressed reading after the finger leaves, and
+ * expression.c can't tell a lift from a touch dropout over a held key.
  *
  * Provides raw XYZ, a per-pad rest baseline (captured at init,
  * recapturable on demand, and slowly drift-corrected in the background per
@@ -60,3 +64,9 @@ bool tiles_hall_recapture_baseline(void);
  * whatever the sensor's polarity. 0 if out of range, uninitialized or
  * not yet sampled. */
 uint16_t tiles_hall_get_depth(uint8_t logical_pad);
+
+/* Depth below which a key counts as up: above bare contact (a resting
+ * finger reads up to ~96), under the strike threshold (150, expression.h)
+ * with room for hysteresis. */
+#define TILES_HALL_KEY_UP_DEPTH 100u
+#define TILES_HALL_RELEASE_FOLLOW_MS 300u

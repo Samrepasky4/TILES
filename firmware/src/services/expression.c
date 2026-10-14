@@ -54,12 +54,18 @@ static bool s_harmonics_enabled = true;
  *     finger from hanging the note.
  *   - A touch that begins with the key already pressed is an instant
  *     strike (a hard hit can bottom out before touch registers) only if
- *     the key was at rest (<= RETRIGGER_ARM_DEPTH_DELTA) within
+ *     the key was up (< TILES_HALL_KEY_UP_DEPTH) within
  *     STRIKE_FROM_REST_MS. Otherwise the finger never left: the pad waits,
- *     silent and without a touch tick, for the key to come up near rest,
- *     then detects a strike as usual.
- * Both first guesses: the dropouts aren't measured; a hard hit's touch lag
- * is a few tens of ms at most. */
+ *     silent and without a touch tick, for the key to come up, then
+ *     detects a strike as usual.
+ * Both need a fresh depth after the finger leaves: hall.c keeps reading a
+ * released pad until its key reads up. Without that the depth froze at
+ * the last pressed reading (an untouched pad is re-read only every
+ * ~50 ms), a real lift looked like a dropout over a held key, and quick
+ * repeated presses on one pad were swallowed. "Up" is above bare contact
+ * (a resting finger reads up to ~96), so a finger left lightly on the pad
+ * can still re-arm it. First guesses: the dropouts aren't measured; a
+ * hard hit's touch lag is a few tens of ms at most. */
 #define PRESSED_DROPOUT_GRACE_MS 300u
 #define STRIKE_FROM_REST_MS 150u
 
@@ -348,9 +354,9 @@ typedef struct {
     uint32_t last_touched_ms;
     bool last_touched_valid;
 
-    /* Last scan the key read at rest (<= RETRIGGER_ARM_DEPTH_DELTA), for
+    /* Last scan the key read up (< TILES_HALL_KEY_UP_DEPTH), for
      * STRIKE_FROM_REST_MS. */
-    uint32_t last_rest_ms;
+    uint32_t last_key_up_ms;
     /* AWAITING_STRIKE that began with the key already pressed and no recent
      * rest: waiting for the key to come up before detecting a strike. */
     bool awaiting_rest;
@@ -1241,7 +1247,7 @@ static void begin_awaiting_strike(pad_expr_t *s, uint8_t pad, uint32_t now_ms) {
      * unless the key hasn't been at rest lately (STRIKE_FROM_REST_MS). */
     float initial_depth = (float)tiles_hall_get_depth(pad);
     s->peak_depth = initial_depth;
-    s->awaiting_rest = initial_depth >= MIN_STRIKE_DEPTH_DELTA && (now_ms - s->last_rest_ms) > STRIKE_FROM_REST_MS;
+    s->awaiting_rest = initial_depth >= MIN_STRIKE_DEPTH_DELTA && (now_ms - s->last_key_up_ms) > STRIKE_FROM_REST_MS;
     s->threshold_crossed = !s->awaiting_rest && initial_depth >= MIN_STRIKE_DEPTH_DELTA;
     s->strike_time_ms = 0;
 }
@@ -1548,8 +1554,8 @@ void tiles_expression_scan(void) {
         /* Dropout-bridged touch (a raw touch always reads true here). */
         bool touched = pad_touch_bridged(s, now_ms);
         float depth_now = (float)tiles_hall_get_depth(pad);
-        if (depth_now <= RETRIGGER_ARM_DEPTH_DELTA) {
-            s->last_rest_ms = now_ms;
+        if (depth_now < (float)TILES_HALL_KEY_UP_DEPTH) {
+            s->last_key_up_ms = now_ms;
         }
 
         if (s->state == PAD_STATE_STOLEN) {
@@ -1579,10 +1585,10 @@ void tiles_expression_scan(void) {
 
         if (s->state == PAD_STATE_AWAITING_STRIKE && s->awaiting_rest) {
             /* The key was already down when this touch began: silent until it
-             * comes up near rest, then a strike is detected from there. */
+             * comes up, then a strike is detected from there. */
             if (!touched) {
                 s->state = PAD_STATE_IDLE;
-            } else if (depth_now <= RETRIGGER_ARM_DEPTH_DELTA) {
+            } else if (depth_now < (float)TILES_HALL_KEY_UP_DEPTH) {
                 begin_awaiting_strike(s, pad, now_ms);
             }
             continue;

@@ -15,6 +15,10 @@ static bool s_pad_init_ok[TILES_NUM_PADS];
 static tiles_hall_sample_t s_pad_sample[TILES_NUM_PADS];
 static int16_t s_pad_baseline_z[TILES_NUM_PADS];
 static uint8_t s_scan_cursor;
+/* Release follow-up (hall.h): touched last call, and when a released pad
+ * stops being read every call (0 = not following). */
+static bool s_pad_was_touched[TILES_NUM_PADS];
+static uint32_t s_pad_follow_until_ms[TILES_NUM_PADS];
 
 /* Slow drift tracker (docs/architecture/defaults-and-safeguards.md "Pad
  * baseline calibration and drift compensation"). A pad's baseline creeps
@@ -196,10 +200,30 @@ bool tiles_hall_last_init_ok(uint8_t logical_pad) {
 }
 
 void tiles_hall_scan(void) {
-    /* Priority pass: every touched, initialized pad is read this call. */
+    /* Priority pass: every touched, initialized pad is read this call, and
+     * every pad just released until its key reads up (see hall.h). */
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
-        if (s_pad_init_ok[i] && tiles_touch_is_touched((uint8_t)(i + 1u))) {
-            read_pad(i);
+        uint8_t pad = (uint8_t)(i + 1u);
+        bool touched = tiles_touch_is_touched(pad);
+        if (s_pad_was_touched[i] && !touched) {
+            s_pad_follow_until_ms[i] = now_ms + TILES_HALL_RELEASE_FOLLOW_MS;
+            if (s_pad_follow_until_ms[i] == 0u) {
+                s_pad_follow_until_ms[i] = 1u;
+            }
+        }
+        s_pad_was_touched[i] = touched;
+        bool following = !touched && s_pad_follow_until_ms[i] != 0u;
+        if (following && (int32_t)(now_ms - s_pad_follow_until_ms[i]) >= 0) {
+            s_pad_follow_until_ms[i] = 0u;
+            following = false;
+        }
+        if (!s_pad_init_ok[i] || (!touched && !following)) {
+            continue;
+        }
+        read_pad(i);
+        if (following && tiles_hall_get_depth(pad) < TILES_HALL_KEY_UP_DEPTH) {
+            s_pad_follow_until_ms[i] = 0u; /* key is up: back to the round-robin */
         }
     }
 

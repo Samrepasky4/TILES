@@ -88,8 +88,10 @@
  *     bend), down to 1 - TILES_LIGHTING_BEND_FLUTTER at full bend, at
  *     FLUTTER_HZ_MIN..MAX. It never goes dark.
  * Pads showing either are rewritten every PAD_LIVE_REFRESH_MS (bending
- * ones every FLUTTER_REFRESH_MS, several samples per flutter cycle), one
- * per pass, on top of the round-robin. All first guesses: "slight, but
+ * ones every FLUTTER_REFRESH_MS, several samples per flutter cycle). They
+ * take the pass's one pad write from the round-robin, which waits: a pad
+ * write is ~0.7 ms (four mux writes on I2C plus the 300 us latch), and a
+ * second one per pass added ~1 ms to the loop while playing. All first guesses: "slight, but
  * visible". The amounts are settings (look.pressure_hue_degrees,
  * look.bend_flutter_percent); 0 turns either off. */
 #define TILES_LIGHTING_PRESSURE_HUE_DEGREES 40u
@@ -826,12 +828,8 @@ void tiles_lighting_service(void) {
     }
     s_underglow_override_was_active = underglow_override_active;
 
-    write_pad(s_service_cursor);
-    s_service_cursor = (uint8_t)((s_service_cursor + 1u) % TILES_NUM_PADS);
-
-    /* Pressure hue / bend flutter: one more pad per pass, a pad showing an
-     * effect (or still showing one that just ended) not written for
-     * PAD_LIVE_REFRESH_MS, taking turns. */
+    /* One pad write per pass: a pad showing pressure hue / bend flutter (or
+     * one that just stopped) that's due, taking turns; else the round-robin. */
     uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     update_pad_fx(now_ms);
     for (uint8_t n = 0; n < TILES_NUM_PADS; n++) {
@@ -840,9 +838,11 @@ void tiles_lighting_service(void) {
         if ((pad_fx_active(i) || s_pad_fx_shown[i]) && now_ms - s_pad_written_ms[i] >= refresh_ms) {
             write_pad(i);
             s_live_cursor = (uint8_t)((i + 1u) % TILES_NUM_PADS);
-            break;
+            return;
         }
     }
+    write_pad(s_service_cursor);
+    s_service_cursor = (uint8_t)((s_service_cursor + 1u) % TILES_NUM_PADS);
 }
 
 void tiles_lighting_set_standby_active(bool active) {
