@@ -9717,3 +9717,10 @@ change. Search it by file or feature name.
   m7b5). Changing them under a sounding chord changes it (shared notes
   held). Same key lock and octave. Its own menu pad (row 2 pad 4, light
   blue), saved by play_state as 9; TEST MODE orchid. Unit 4 only.
+- **Harmony is the Orchid layout only; haptics on the roots (0.6.2,
+  2026-10-15).** After the A/B: "haptics on the left side. remove other
+  layout lets replace it with this one". The mood-colour layout A, its glide
+  voicing and its menu pad are gone (git history has them); Harmony is the
+  former layout B on row 2 pad 3, teal. A board saved in either (8, or 0.6.1's
+  9) opens Harmony. The root pads now feel like melodic pads: a tick on
+  touch, a kick on the strike, a buzz following pressure while held.

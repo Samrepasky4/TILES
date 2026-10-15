@@ -87,7 +87,7 @@ static void reply_ok(void) {
 }
 
 static void reply_err(const char *reason) {
-    char buf[64];
+    char buf[USB_VENDOR_LINE_MAX];
     snprintf(buf, sizeof(buf), "ERR %s", reason);
     reply(buf);
 }
@@ -571,7 +571,7 @@ static void handle_line(char *line) {
             if (tiles_op_mode_test_set_mode(arg)) {
                 reply_ok();
             } else {
-                reply_err("mode-melodic|chord|sequencer|bass|song|ableton|drums|volca|harmony|orchid");
+                reply_err("mode-melodic|chord|sequencer|bass|song|ableton|drums|volca|harmony");
             }
             return;
         }
