@@ -25,6 +25,7 @@
 #define HARMONY_BASS_LOW_NOTE 36u
 #define HARMONY_MAX_OCTAVE 2
 #define HARMONY_MAX_NOTES (TILES_HARMONY_MAX_TONES + 1u) /* + bass */
+#define HARMONY_NO_QUALITY 0xFFu
 
 /* Light levels (fractions of full, before the power ceiling): first guesses. */
 #define HARMONY_COLOUR_DIM 0.3f
@@ -37,6 +38,15 @@ static const float COLUMN_RGB[3][3] = {
     {0.0f, 0.3f, 1.0f},
     {0.6f, 0.0f, 1.0f},
 };
+/* Layout B's columns: voicing teal, quality amber, extensions coral. */
+static const float B_COLUMN_RGB[3][3] = {
+    {0.0f, 0.7f, 0.6f},
+    {1.0f, 0.45f, 0.0f},
+    {1.0f, 0.25f, 0.15f},
+};
+#define HARMONY_B_DEFAULT_LEVEL 0.6f /* major while no quality is held */
+static const uint8_t B_EXT_FOR_ROW[TILES_GRID_MAX_ROW + 1u] = {0u, TILES_HARMONY_EXT_9, TILES_HARMONY_EXT_MAJ7,
+                                                              TILES_HARMONY_EXT_7, TILES_HARMONY_EXT_6};
 
 static uint8_t s_colour;   /* picked colour, 0-11 */
 static int8_t s_octave;    /* -2..+2 */
@@ -55,6 +65,15 @@ static uint8_t s_notes[HARMONY_MAX_NOTES];
 static uint8_t s_note_count;
 static tiles_harmony_voicing_t s_last_voicing;
 static uint8_t s_last_pressure;
+
+/* Layout B: voicing 0 root, 1 first, 2 second, 3 open; the held quality
+ * (by press time) and extensions; what the sounding chord was built from. */
+static bool s_layout_b;
+static uint8_t s_b_voicing;
+static uint32_t s_b_quality_pressed_ms[TILES_HARMONY_NUM_QUALITIES];
+static bool s_b_quality_held[TILES_HARMONY_NUM_QUALITIES];
+static uint8_t s_b_ext_mask;
+static uint16_t s_b_sounding_signature;
 
 /* Root pads: columns 1-3; colour pads: columns 4-6. Row 4 is the bottom. */
 static bool pad_row_col(uint8_t pad, uint8_t *row, uint8_t *col) {
@@ -100,15 +119,42 @@ static void notes_off(void) {
     s_note_count = 0u;
 }
 
-/* Builds the chord for root_pc in the picked colour: voiced (glide), plus the
- * bass. */
+/* Layout B: the held quality pressed last, or none. */
+static uint8_t b_quality(void) {
+    uint8_t best = HARMONY_NO_QUALITY;
+    for (uint8_t q = 0; q < TILES_HARMONY_NUM_QUALITIES; q++) {
+        if (s_b_quality_held[q] && (best == HARMONY_NO_QUALITY ||
+                                    (int32_t)(s_b_quality_pressed_ms[q] - s_b_quality_pressed_ms[best]) > 0)) {
+            best = q;
+        }
+    }
+    return best;
+}
+
+/* Layout B: everything the chord is built from, to notice a change. */
+static uint16_t b_signature(void) {
+    return (uint16_t)((b_quality() << 8) | (s_b_ext_mask << 4) | s_b_voicing);
+}
+
+/* Builds the chord for root_pc: in layout A the picked colour, voiced with
+ * glide; in layout B the held quality and extensions at the picked
+ * inversion. Plus the bass. */
 static uint8_t build_chord(uint8_t root_pc, uint8_t *out) {
     int8_t intervals[TILES_HARMONY_MAX_TONES];
-    uint8_t n = tiles_harmony_chord(s_colour, root_pc, scale_mask(), intervals);
     int shift = 12 * s_octave;
     tiles_harmony_voicing_t v;
-    tiles_harmony_voice(root_pc, intervals, n, &s_last_voicing, (uint8_t)((int)HARMONY_LOW_NOTE + shift),
-                        (uint8_t)((int)HARMONY_HIGH_NOTE + shift), &v);
+    if (s_layout_b) {
+        uint8_t quality = b_quality();
+        uint8_t n = tiles_harmony_built_chord(quality == HARMONY_NO_QUALITY ? 0u : quality, s_b_ext_mask, root_pc,
+                                              scale_mask(), intervals);
+        tiles_harmony_voice_fixed(root_pc, intervals, n, s_b_voicing < 3u ? s_b_voicing : 0u, s_b_voicing == 3u,
+                                  (uint8_t)((int)HARMONY_LOW_NOTE + shift), &v);
+        s_b_sounding_signature = b_signature();
+    } else {
+        uint8_t n = tiles_harmony_chord(s_colour, root_pc, scale_mask(), intervals);
+        tiles_harmony_voice(root_pc, intervals, n, &s_last_voicing, (uint8_t)((int)HARMONY_LOW_NOTE + shift),
+                            (uint8_t)((int)HARMONY_HIGH_NOTE + shift), &v);
+    }
     if (v.count == 0u) {
         return 0u;
     }
@@ -180,12 +226,24 @@ void tiles_harmony_enter(void) {
         s_prev_touched[pad - 1u] = tiles_touch_is_touched(pad);
         s_awaiting_strike[pad - 1u] = false;
     }
+    for (uint8_t q = 0; q < TILES_HARMONY_NUM_QUALITIES; q++) {
+        s_b_quality_held[q] = false;
+    }
+    s_b_ext_mask = 0u;
     s_prev_minus = tiles_button_is_pressed(TILES_MINUS_BUTTON_ID);
     s_prev_plus = tiles_button_is_pressed(TILES_PLUS_BUTTON_ID);
 }
 
 void tiles_harmony_leave(void) {
     chord_release();
+}
+
+void tiles_harmony_set_layout_b(bool on) {
+    if (on != s_layout_b) {
+        chord_release();
+        s_last_voicing.count = 0u;
+    }
+    s_layout_b = on;
 }
 
 void tiles_harmony_handle_input(uint32_t now_ms) {
@@ -196,6 +254,29 @@ void tiles_harmony_handle_input(uint32_t now_ms) {
         bool was = s_prev_touched[i];
         s_prev_touched[i] = touched;
         if (!pad_row_col(pad, &row, &col)) {
+            continue;
+        }
+        if (col >= 4u && s_layout_b) {
+            if (col == 4u && touched && !was) {
+                s_b_voicing = (uint8_t)(TILES_GRID_MAX_ROW - row); /* bottom = root position */
+                tiles_haptics_trigger_touch_pulse(pad);
+            } else if (col == 5u) {
+                uint8_t q = (uint8_t)(TILES_GRID_MAX_ROW - row);
+                if (touched && !was) {
+                    s_b_quality_pressed_ms[q] = now_ms;
+                    tiles_haptics_trigger_touch_pulse(pad);
+                }
+                s_b_quality_held[q] = touched;
+            } else if (col == 6u) {
+                if (touched) {
+                    s_b_ext_mask |= B_EXT_FOR_ROW[row];
+                } else {
+                    s_b_ext_mask &= (uint8_t)~B_EXT_FOR_ROW[row];
+                }
+                if (touched && !was) {
+                    tiles_haptics_trigger_touch_pulse(pad);
+                }
+            }
             continue;
         }
         if (col >= 4u) {
@@ -237,6 +318,12 @@ void tiles_harmony_handle_input(uint32_t now_ms) {
                 chord_release();
             }
         }
+    }
+
+    /* Layout B: a sounding chord follows the held quality, extensions and
+     * voicing. */
+    if (s_layout_b && s_sounding_pad != 0u && b_signature() != s_b_sounding_signature) {
+        chord_recolour();
     }
 
     /* Pressure on the sounding root: channel pressure, scaled like aftertouch. */
@@ -287,13 +374,29 @@ void tiles_harmony_render(uint32_t now_ms, float beat_flash, float diamond_led) 
     for (uint8_t i = 0; i < s_note_count; i++) {
         chord_pcs |= (uint16_t)(1u << (s_notes[i] % 12u));
     }
-    const float *hue = COLUMN_RGB[s_colour % 3u];
+    const float *hue = s_layout_b ? B_COLUMN_RGB[1] : COLUMN_RGB[s_colour % 3u];
+    uint8_t quality = b_quality();
 
     for (uint8_t row = 1u; row <= TILES_GRID_MAX_ROW; row++) {
         for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
             uint8_t pad = board_pad_for_row_col(row, col);
             float r = 0.0f, g = 0.0f, b = 0.0f;
-            if (col >= 4u) {
+            if (col >= 4u && s_layout_b) {
+                uint8_t index = (uint8_t)(TILES_GRID_MAX_ROW - row);
+                float level = HARMONY_COLOUR_DIM;
+                if (col == 4u && index == s_b_voicing) {
+                    level = 1.0f;
+                } else if (col == 5u && index == quality) {
+                    level = 1.0f;
+                } else if (col == 5u && index == 0u && quality == HARMONY_NO_QUALITY) {
+                    level = HARMONY_B_DEFAULT_LEVEL;
+                } else if (col == 6u && (s_b_ext_mask & B_EXT_FOR_ROW[row])) {
+                    level = 1.0f;
+                }
+                r = B_COLUMN_RGB[col - 4u][0] * level;
+                g = B_COLUMN_RGB[col - 4u][1] * level;
+                b = B_COLUMN_RGB[col - 4u][2] * level;
+            } else if (col >= 4u) {
                 uint8_t colour = colour_for(row, col);
                 float level = colour == s_colour ? 1.0f : HARMONY_COLOUR_DIM;
                 r = COLUMN_RGB[col - 4u][0] * level;
@@ -335,6 +438,12 @@ void tiles_harmony_render(uint32_t now_ms, float beat_flash, float diamond_led) 
         tiles_buttons_set_standby_led(board_button_for_col(col), level);
     }
     for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, TILES_HARMONY_COLOR_R, TILES_HARMONY_COLOR_G, TILES_HARMONY_COLOR_B);
+        if (s_layout_b) {
+            tiles_lighting_set_standby_underglow_rgb(i, TILES_HARMONY_B_COLOR_R, TILES_HARMONY_B_COLOR_G,
+                                                     TILES_HARMONY_B_COLOR_B);
+        } else {
+            tiles_lighting_set_standby_underglow_rgb(i, TILES_HARMONY_COLOR_R, TILES_HARMONY_COLOR_G,
+                                                     TILES_HARMONY_COLOR_B);
+        }
     }
 }

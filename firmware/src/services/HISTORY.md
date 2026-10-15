@@ -9708,3 +9708,12 @@ change. Search it by file or feature name.
   the scale keeping their role (D bright -> Dm, B bright -> Bdim). Teal,
   mode menu row 2 pad 3; play_state saves it as 8. Flashed to unit 4 only.
   Not yet: tilt morph, press bloom, dice, "native colour" glow.
+- **Harmony layout B, for an A/B test (0.6.1, 2026-10-15).** Asked: "load
+  the orchid version layout as another one just to ab test". The layout B
+  proposed earlier: the same chromatic roots; column 4 voicing (root, 1st,
+  2nd, open; tap to pick, no glide), column 5 quality while held (major,
+  minor, sus4, dim; last pressed wins, none = major), column 6 extensions
+  while held, combining (6, 7, maj7, 9: Maj+7 = 7, Dim+6 = dim7, Dim+7 =
+  m7b5). Changing them under a sounding chord changes it (shared notes
+  held). Same key lock and octave. Its own menu pad (row 2 pad 4, light
+  blue), saved by play_state as 9; TEST MODE orchid. Unit 4 only.

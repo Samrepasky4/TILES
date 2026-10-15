@@ -571,7 +571,7 @@ static void handle_line(char *line) {
             if (tiles_op_mode_test_set_mode(arg)) {
                 reply_ok();
             } else {
-                reply_err("mode-melodic|chord|sequencer|bass|song|ableton|drums|volca|harmony");
+                reply_err("mode-melodic|chord|sequencer|bass|song|ableton|drums|volca|harmony|orchid");
             }
             return;
         }

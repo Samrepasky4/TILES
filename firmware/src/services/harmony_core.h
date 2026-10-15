@@ -10,13 +10,17 @@
  *    0 bright  major      1 dark   minor       2 open   sus2
  *    3 glow    maj9       4 deep   min9        5 float  7sus4
  *    6 dream   maj7#11    7 haze   min11       8 space  quartal (4ths)
- *    9 eerie   aug       10 noir   m(maj7)    11 grit   7#9 */
+ *    9 eerie   aug       10 noir   m(maj7)    11 grit   7#9
+ *
+ * Layout B (the Orchid's way, for an A/B test) builds chords from a
+ * quality (major, minor, sus4, diminished) plus any of four extensions
+ * (6, 7, maj7, 9), and voices them at a fixed inversion instead. */
 
 #include <stdbool.h>
 #include <stdint.h>
 
 #define TILES_HARMONY_NUM_COLOURS 12u
-#define TILES_HARMONY_MAX_TONES 5u   /* root included */
+#define TILES_HARMONY_MAX_TONES 7u   /* root included: a triad + 4 extensions */
 #define TILES_HARMONY_SCALE_ALL 0x0FFFu /* every pitch class: no fitting */
 
 /* The chord tones of `colour` on a root of pitch class `root_pc`, as
@@ -28,6 +32,16 @@
  * neighbour in the scale, then two semitones; a tone with nowhere to go is
  * dropped, as is one landing on another's pitch class. Returns the count. */
 uint8_t tiles_harmony_chord(uint8_t colour, uint8_t root_pc, uint16_t scale_mask, int8_t *intervals_out);
+
+/* Layout B: quality 0 major, 1 minor, 2 sus4, 3 diminished; extension bits
+ * TILES_HARMONY_EXT_*. Fitted to the scale like the colours. */
+#define TILES_HARMONY_NUM_QUALITIES 4u
+#define TILES_HARMONY_EXT_6 0x1u
+#define TILES_HARMONY_EXT_7 0x2u    /* minor seventh: 7, m7, m7b5, 7sus4 */
+#define TILES_HARMONY_EXT_MAJ7 0x4u
+#define TILES_HARMONY_EXT_9 0x8u
+uint8_t tiles_harmony_built_chord(uint8_t quality, uint8_t ext_mask, uint8_t root_pc, uint16_t scale_mask,
+                                  int8_t *intervals_out);
 
 typedef struct {
     uint8_t count;
@@ -42,3 +56,10 @@ typedef struct {
 void tiles_harmony_voice(uint8_t root_pc, const int8_t *intervals, uint8_t count,
                          const tiles_harmony_voicing_t *prev, uint8_t low, uint8_t high,
                          tiles_harmony_voicing_t *out);
+
+/* Layout B's fixed voicing: the root in low..low+11, the lowest `inversion`
+ * tones (0-2) an octave up; `open` spreads it: a triad's middle note up an
+ * octave (root, fifth, tenth), a bigger chord's second-highest note down an
+ * octave (drop 2). */
+void tiles_harmony_voice_fixed(uint8_t root_pc, const int8_t *intervals, uint8_t count, uint8_t inversion,
+                               bool open, uint8_t low, tiles_harmony_voicing_t *out);

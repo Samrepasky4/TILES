@@ -96,6 +96,41 @@ int main(void) {
     tiles_harmony_voice(0, iv, n, &none, 60, 64, &wide);
     assert(wide.count == 0);
 
+    /* 5. layout B: a quality plus extensions, the Orchid's way */
+    int8_t got[TILES_HARMONY_MAX_TONES];
+    assert(tiles_harmony_built_chord(0, TILES_HARMONY_EXT_7, 7, TILES_HARMONY_SCALE_ALL, got) == 4 &&
+           memcmp(got, (const int8_t[]){0, 4, 7, 10}, 4) == 0);                                 /* G7 */
+    assert(tiles_harmony_built_chord(1, TILES_HARMONY_EXT_7, 9, TILES_HARMONY_SCALE_ALL, got) == 4 &&
+           memcmp(got, (const int8_t[]){0, 3, 7, 10}, 4) == 0);                                 /* Am7 */
+    assert(tiles_harmony_built_chord(3, TILES_HARMONY_EXT_7, 11, TILES_HARMONY_SCALE_ALL, got) == 4 &&
+           memcmp(got, (const int8_t[]){0, 3, 6, 10}, 4) == 0);                                 /* Bm7b5 */
+    assert(tiles_harmony_built_chord(3, TILES_HARMONY_EXT_6, 0, TILES_HARMONY_SCALE_ALL, got) == 4 &&
+           memcmp(got, (const int8_t[]){0, 3, 6, 9}, 4) == 0);                                  /* Cdim7 */
+    assert(tiles_harmony_built_chord(2, TILES_HARMONY_EXT_7, 7, TILES_HARMONY_SCALE_ALL, got) == 4 &&
+           memcmp(got, (const int8_t[]){0, 5, 7, 10}, 4) == 0);                                 /* G7sus4 */
+    assert(tiles_harmony_built_chord(0, TILES_HARMONY_EXT_MAJ7 | TILES_HARMONY_EXT_9, 0, TILES_HARMONY_SCALE_ALL, got) == 5 &&
+           memcmp(got, (const int8_t[]){0, 4, 7, 11, 14}, 5) == 0);                             /* Cmaj9 */
+    assert(tiles_harmony_built_chord(0, 0xF, 0, TILES_HARMONY_SCALE_ALL, got) == 7 &&
+           memcmp(got, (const int8_t[]){0, 4, 7, 9, 10, 11, 14}, 7) == 0);                      /* everything */
+    assert(tiles_harmony_built_chord(0, TILES_HARMONY_EXT_7, 2, C_MAJOR, got) == 4 &&
+           memcmp(got, (const int8_t[]){0, 3, 7, 10}, 4) == 0);                                 /* D7 in C -> Dm7 */
+
+    /* fixed voicings: root position, inversions, open */
+    tiles_harmony_voicing_t v;
+    int8_t triad[] = {0, 4, 7}, maj7[] = {0, 4, 7, 11};
+    tiles_harmony_voice_fixed(0, triad, 3, 0, false, 48, &v);
+    assert(v.count == 3 && memcmp(v.notes, (const uint8_t[]){48, 52, 55}, 3) == 0);
+    tiles_harmony_voice_fixed(0, triad, 3, 1, false, 48, &v);
+    assert(v.count == 3 && memcmp(v.notes, (const uint8_t[]){52, 55, 60}, 3) == 0);
+    tiles_harmony_voice_fixed(0, triad, 3, 2, false, 48, &v);
+    assert(v.count == 3 && memcmp(v.notes, (const uint8_t[]){55, 60, 64}, 3) == 0);
+    tiles_harmony_voice_fixed(0, triad, 3, 0, true, 48, &v);
+    assert(v.count == 3 && memcmp(v.notes, (const uint8_t[]){48, 55, 64}, 3) == 0);
+    tiles_harmony_voice_fixed(0, maj7, 4, 0, true, 48, &v);
+    assert(v.count == 4 && memcmp(v.notes, (const uint8_t[]){43, 48, 52, 59}, 4) == 0); /* drop 2 */
+    tiles_harmony_voice_fixed(9, triad, 3, 0, false, 48, &v);
+    assert(v.notes[0] == 57); /* A in C3..B3 */
+
     printf("harmony_core: all tests pass\n");
     return 0;
 }

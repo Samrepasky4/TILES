@@ -58,7 +58,7 @@ typedef enum {
  * color, like the game menu. Column order: melodic, sequencer, drums,
  * chord, Song, Ableton; bass guitar is the first pad of row 2 (pad 7), Volca
  * (drum mode for a Volca Sample, drum_seq.h) the second (pad 8), Harmony
- * (harmony.h) the third (pad 9). */
+ * (harmony.h) the third (pad 9) and Harmony's layout B the fourth (pad 10). */
 #define OP_MENU_ROW 1u
 #define OP_MENU_COL_MELODIC 1u
 #define OP_MENU_COL_SEQUENCER 2u
@@ -72,10 +72,12 @@ typedef enum {
 #define OP_MENU_VOLCA_COL 2u
 #define OP_MENU_HARMONY_ROW 2u
 #define OP_MENU_HARMONY_COL 3u
+#define OP_MENU_HARMONY_B_COL 4u /* Harmony's layout B, for an A/B test */
 /* play_state's saved mode numbers past the drum mode: Volca (drum mode with
  * its flag) and Harmony. Fixed: they're in flash. */
 #define OP_PLAY_STATE_VOLCA 7u
 #define OP_PLAY_STATE_HARMONY 8u
+#define OP_PLAY_STATE_HARMONY_B 9u
 
 /* Mode colors: melodic = Sentia magenta, sequencer = red, bass guitar =
  * amber (matches its fretboard), chord = blue (matches its chord strip). */
@@ -185,6 +187,9 @@ static tiles_op_mode_t s_menu_pending_mode;
  * crash like s_active_mode; the pending pick carries it until release. */
 static bool __uninitialized_ram(s_volca_mode);
 static bool s_menu_pending_volca;
+/* Harmony's layout B (harmony.h), the same way. */
+static bool __uninitialized_ram(s_harmony_b_mode);
+static bool s_menu_pending_harmony_b;
 
 /* Triangle's LED sometimes showed lit right after boot despite being set
  * off at init (cause not found; likely a PCA9685 power-on glitch). So the
@@ -1334,10 +1339,15 @@ static void render_menu(uint32_t now_ms) {
                     g = OP_MENU_GUITAR_G * OP_SCALE_AVAILABLE_LEVEL;
                     b = OP_MENU_GUITAR_B * OP_SCALE_AVAILABLE_LEVEL;
                 }
-            } else if (row == OP_MENU_HARMONY_ROW && col == OP_MENU_HARMONY_COL) {
+            } else if (row == OP_MENU_HARMONY_ROW && (col == OP_MENU_HARMONY_COL || col == OP_MENU_HARMONY_B_COL)) {
                 tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
-                if (mode == OP_MODE_HARMONY) {
+                bool layout_b = s_menu_pending ? s_menu_pending_harmony_b : s_harmony_b_mode;
+                if (mode == OP_MODE_HARMONY && layout_b == (col == OP_MENU_HARMONY_B_COL)) {
                     r = g = b = pulse;
+                } else if (col == OP_MENU_HARMONY_B_COL) {
+                    r = TILES_HARMONY_B_COLOR_R * OP_SCALE_AVAILABLE_LEVEL;
+                    g = TILES_HARMONY_B_COLOR_G * OP_SCALE_AVAILABLE_LEVEL;
+                    b = TILES_HARMONY_B_COLOR_B * OP_SCALE_AVAILABLE_LEVEL;
                 } else {
                     r = TILES_HARMONY_COLOR_R * OP_SCALE_AVAILABLE_LEVEL;
                     g = TILES_HARMONY_COLOR_G * OP_SCALE_AVAILABLE_LEVEL;
@@ -1979,6 +1989,12 @@ static void set_volca(bool volca) {
     tiles_drum_seq_set_volca(volca);
 }
 
+/* Harmony's layout: the colours, or B (harmony.h). */
+static void set_harmony_b(bool on) {
+    s_harmony_b_mode = on;
+    tiles_harmony_set_layout_b(on);
+}
+
 static void set_active_mode(tiles_op_mode_t mode) {
     if (s_song_capture_active && mode != s_active_mode) {
         /* Any real mode change ends Song capture. */
@@ -2407,10 +2423,12 @@ static void handle_menu_taps(void) {
                 s_menu_pending_volca = false;
                 s_menu_pending = true;
             }
-            if (!s_menu_pending && row == OP_MENU_HARMONY_ROW && col == OP_MENU_HARMONY_COL && touched &&
+            if (!s_menu_pending && row == OP_MENU_HARMONY_ROW &&
+                (col == OP_MENU_HARMONY_COL || col == OP_MENU_HARMONY_B_COL) && touched &&
                 (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
                 s_menu_pending_mode = OP_MODE_HARMONY;
                 s_menu_pending_volca = false;
+                s_menu_pending_harmony_b = col == OP_MENU_HARMONY_B_COL;
                 s_menu_pending = true;
             }
             if (!s_menu_pending && row == OP_MENU_VOLCA_ROW && col == OP_MENU_VOLCA_COL && touched &&
@@ -2428,6 +2446,9 @@ static void handle_menu_taps(void) {
         menu_exit();
         if (mode == OP_MODE_DRUM) {
             set_volca(s_menu_pending_volca);
+        }
+        if (mode == OP_MODE_HARMONY) {
+            set_harmony_b(s_menu_pending_harmony_b);
         }
         set_active_mode(mode);
     }
@@ -3035,8 +3056,10 @@ void tiles_op_mode_init(bool crash_recovered) {
     if (!crash_recovered) {
         s_active_mode = OP_MODE_MELODIC;
         s_volca_mode = false;
+        s_harmony_b_mode = false;
     }
     s_menu_pending_volca = false;
+    s_menu_pending_harmony_b = false;
     s_menu_visible = false;
     s_menu_pending = false;
     s_triangle_was_held = false;
@@ -3111,6 +3134,7 @@ void tiles_op_mode_init(bool crash_recovered) {
     tiles_drum_seq_init(tiles_storage_drum_region_safe() ? tiles_storage_drum_ops() : NULL);
     tiles_drum_seq_set_volca(s_volca_mode);
     tiles_harmony_init();
+    tiles_harmony_set_layout_b(s_harmony_b_mode);
 
     /* Register Ableton mode's SysEx callback (harmless if never used). */
     scene_launch_init();
@@ -3123,7 +3147,8 @@ void tiles_op_mode_init(bool crash_recovered) {
         if (saved_mode == OP_PLAY_STATE_VOLCA) {
             set_volca(true);
             set_active_mode(OP_MODE_DRUM);
-        } else if (saved_mode == OP_PLAY_STATE_HARMONY) {
+        } else if (saved_mode == OP_PLAY_STATE_HARMONY || saved_mode == OP_PLAY_STATE_HARMONY_B) {
+            set_harmony_b(saved_mode == OP_PLAY_STATE_HARMONY_B);
             set_active_mode(OP_MODE_HARMONY);
         } else if (saved_mode <= (uint8_t)OP_MODE_DRUM) {
             set_active_mode((tiles_op_mode_t)saved_mode);
@@ -3154,7 +3179,7 @@ void tiles_op_mode_scan(void) {
      * return below, so standby (or a game, or transpose) can't hold up a
      * save until the power is pulled. */
     uint8_t saved_mode = (s_active_mode == OP_MODE_DRUM && s_volca_mode) ? OP_PLAY_STATE_VOLCA
-                         : s_active_mode == OP_MODE_HARMONY             ? OP_PLAY_STATE_HARMONY
+                         : s_active_mode == OP_MODE_HARMONY ? (s_harmony_b_mode ? OP_PLAY_STATE_HARMONY_B : OP_PLAY_STATE_HARMONY)
                                                                         : (uint8_t)s_active_mode;
     tiles_play_state_service(now_ms, saved_mode, tiles_midi_clock_is_running(), !any_pad_touched());
 
@@ -3372,7 +3397,8 @@ bool tiles_op_mode_test_set_mode(const char *name) {
         tiles_op_mode_t mode;
     } MODES[] = {{"melodic", OP_MODE_MELODIC}, {"chord", OP_MODE_CHORD},   {"sequencer", OP_MODE_SEQUENCER},
                  {"bass", OP_MODE_GUITAR},     {"song", OP_MODE_SONG},     {"ableton", OP_MODE_SCENE_LAUNCH},
-                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM},    {"harmony", OP_MODE_HARMONY}};
+                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM},    {"harmony", OP_MODE_HARMONY},
+                 {"orchid", OP_MODE_HARMONY}};
     for (size_t i = 0; i < sizeof(MODES) / sizeof(MODES[0]); i++) {
         if (strcmp(name, MODES[i].name) == 0) {
             if (s_menu_visible) {
@@ -3381,6 +3407,9 @@ bool tiles_op_mode_test_set_mode(const char *name) {
             s_scale_menu_visible = false;
             if (MODES[i].mode == OP_MODE_DRUM) {
                 set_volca(strcmp(name, "volca") == 0);
+            }
+            if (MODES[i].mode == OP_MODE_HARMONY) {
+                set_harmony_b(strcmp(name, "orchid") == 0);
             }
             set_active_mode(MODES[i].mode);
             return true;
