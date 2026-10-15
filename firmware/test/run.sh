@@ -30,6 +30,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_mpe_alloc.c src/se
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_drum_pattern.c src/services/drum_pattern.c -o /tmp/sentia_tiles_test_drum_pattern
 /tmp/sentia_tiles_test_drum_pattern
 
+# Harmony mode's chord colours, key fitting and glide voicing.
+cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_harmony_core.c src/services/harmony_core.c -o /tmp/sentia_tiles_test_harmony_core
+/tmp/sentia_tiles_test_harmony_core
+
 # Flash store (power-cut simulation) and the settings table on top of it.
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/storage test/test_kv_store.c src/storage/kv_store.c -o /tmp/sentia_tiles_test_kv_store
 /tmp/sentia_tiles_test_kv_store

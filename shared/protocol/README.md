@@ -56,7 +56,7 @@ CONTENT LIST\n            every record in the content store, one line each, then
 CONTENT CLEAR\n           wipe the content store (every custom scale): OK
 TEST LEDS <0-100>\n       bench only: every LED white at that % (current measurement)
 TEST MOTORS <n> [duty%]\n bench only: pads 1..n's motors for 8 s
-TEST MODE <name>\n        bench only: switch mode (melodic chord sequencer bass song ableton drums volca)
+TEST MODE <name>\n        bench only: switch mode (melodic chord sequencer bass song ableton drums volca harmony)
 TEST OFF\n                bench only: back to normal
 ```
 

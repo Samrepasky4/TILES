@@ -6,6 +6,7 @@
 #include "cv_gate.h"
 #include "debug_mode.h"
 #include "drum_seq.h"
+#include "harmony.h"
 #include "expression.h"
 #include "expression_control.h"
 #include "game_mode.h"
@@ -50,12 +51,14 @@ typedef enum {
     OP_MODE_SONG,
     OP_MODE_SCENE_LAUNCH,
     OP_MODE_DRUM,
+    OP_MODE_HARMONY,
 } tiles_op_mode_t;
 
 /* Mode menu: one pad per mode on row 1 (nearest the buttons), each its own
  * color, like the game menu. Column order: melodic, sequencer, drums,
  * chord, Song, Ableton; bass guitar is the first pad of row 2 (pad 7), Volca
- * (drum mode for a Volca Sample, drum_seq.h) the second (pad 8). */
+ * (drum mode for a Volca Sample, drum_seq.h) the second (pad 8), Harmony
+ * (harmony.h) the third (pad 9). */
 #define OP_MENU_ROW 1u
 #define OP_MENU_COL_MELODIC 1u
 #define OP_MENU_COL_SEQUENCER 2u
@@ -67,8 +70,12 @@ typedef enum {
 #define OP_MENU_GUITAR_COL 1u
 #define OP_MENU_VOLCA_ROW 2u
 #define OP_MENU_VOLCA_COL 2u
-/* Volca mode in play_state's saved mode number (past the real modes). */
+#define OP_MENU_HARMONY_ROW 2u
+#define OP_MENU_HARMONY_COL 3u
+/* play_state's saved mode numbers past the drum mode: Volca (drum mode with
+ * its flag) and Harmony. Fixed: they're in flash. */
 #define OP_PLAY_STATE_VOLCA 7u
+#define OP_PLAY_STATE_HARMONY 8u
 
 /* Mode colors: melodic = Sentia magenta, sequencer = red, bass guitar =
  * amber (matches its fretboard), chord = blue (matches its chord strip). */
@@ -1193,12 +1200,15 @@ static bool mode_owns_standby_grid(tiles_op_mode_t mode) {
     }
     /* Ableton mode's grid is all launch pads, drum mode's steps and drums;
      * no live-play exception. */
-    return mode == OP_MODE_SEQUENCER || mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_DRUM;
+    return mode == OP_MODE_SEQUENCER || mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_DRUM || mode == OP_MODE_HARMONY;
 }
 
 /* ---- Mode menu ------------------------------------------------------------ */
 
 static void menu_enter(void) {
+    if (s_active_mode == OP_MODE_HARMONY) {
+        tiles_harmony_leave(); /* the menu takes the grid: end the held chord */
+    }
     s_menu_visible = true;
     /* Defensive: never inherit a stale pending selection (a forced close
      * elsewhere could leave one set and block every later pick). */
@@ -1324,6 +1334,15 @@ static void render_menu(uint32_t now_ms) {
                     g = OP_MENU_GUITAR_G * OP_SCALE_AVAILABLE_LEVEL;
                     b = OP_MENU_GUITAR_B * OP_SCALE_AVAILABLE_LEVEL;
                 }
+            } else if (row == OP_MENU_HARMONY_ROW && col == OP_MENU_HARMONY_COL) {
+                tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
+                if (mode == OP_MODE_HARMONY) {
+                    r = g = b = pulse;
+                } else {
+                    r = TILES_HARMONY_COLOR_R * OP_SCALE_AVAILABLE_LEVEL;
+                    g = TILES_HARMONY_COLOR_G * OP_SCALE_AVAILABLE_LEVEL;
+                    b = TILES_HARMONY_COLOR_B * OP_SCALE_AVAILABLE_LEVEL;
+                }
             } else if (row == OP_MENU_VOLCA_ROW && col == OP_MENU_VOLCA_COL) {
                 tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
                 bool volca = s_menu_pending ? s_menu_pending_volca : s_volca_mode;
@@ -1428,6 +1447,9 @@ static void handle_scale_menu_taps(void) {
  * (per-pattern scales were tried and dropped). Stored patterns are never
  * rewritten; seq_fire_note() fits them to the scale as they play. */
 static void scale_menu_enter(void) {
+    if (s_active_mode == OP_MODE_HARMONY) {
+        tiles_harmony_leave(); /* the picker takes the grid: end the held chord */
+    }
     s_scale_menu_visible = true;
     s_scale_menu_pending_exit = false; /* defensive; see menu_enter() */
     s_scale_menu_haptic_pulse_ms = to_ms_since_boot(get_absolute_time());
@@ -1998,12 +2020,18 @@ static void set_active_mode(tiles_op_mode_t mode) {
         /* Ends drums held on the pads; the beat keeps playing. */
         tiles_drum_seq_leave();
     }
+    if (s_active_mode == OP_MODE_HARMONY && mode != OP_MODE_HARMONY) {
+        tiles_harmony_leave();
+    }
     s_active_mode = mode;
     if (mode == OP_MODE_SEQUENCER) {
         seq_start();
     }
     if (mode == OP_MODE_DRUM) {
         tiles_drum_seq_enter();
+    }
+    if (mode == OP_MODE_HARMONY) {
+        tiles_harmony_enter();
     }
     /* Modes that draw the whole grid claim standby (mode_owns_standby_grid()). */
     if (mode_owns_standby_grid(mode)) {
@@ -2034,7 +2062,8 @@ static void set_active_mode(tiles_op_mode_t mode) {
     /* Triangle is lit only while the mode menu is open. */
     tiles_buttons_set_override_led(TILES_TRIANGLE_BUTTON_ID, 0.0f);
     s_scene_pending_melodic = false;
-    if (mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_SEQUENCER || mode == OP_MODE_SONG || mode == OP_MODE_DRUM) {
+    if (mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_SEQUENCER || mode == OP_MODE_SONG || mode == OP_MODE_DRUM ||
+        mode == OP_MODE_HARMONY) {
         s_ableton_capture_active = false;
     }
     if (mode == OP_MODE_SCENE_LAUNCH) {
@@ -2375,6 +2404,12 @@ static void handle_menu_taps(void) {
             if (!s_menu_pending && row == OP_MENU_GUITAR_ROW && col == OP_MENU_GUITAR_COL && touched &&
                 (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
                 s_menu_pending_mode = OP_MODE_GUITAR;
+                s_menu_pending_volca = false;
+                s_menu_pending = true;
+            }
+            if (!s_menu_pending && row == OP_MENU_HARMONY_ROW && col == OP_MENU_HARMONY_COL && touched &&
+                (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
+                s_menu_pending_mode = OP_MODE_HARMONY;
                 s_menu_pending_volca = false;
                 s_menu_pending = true;
             }
@@ -3075,6 +3110,7 @@ void tiles_op_mode_init(bool crash_recovered) {
      * crash). */
     tiles_drum_seq_init(tiles_storage_drum_region_safe() ? tiles_storage_drum_ops() : NULL);
     tiles_drum_seq_set_volca(s_volca_mode);
+    tiles_harmony_init();
 
     /* Register Ableton mode's SysEx callback (harmless if never used). */
     scene_launch_init();
@@ -3087,6 +3123,8 @@ void tiles_op_mode_init(bool crash_recovered) {
         if (saved_mode == OP_PLAY_STATE_VOLCA) {
             set_volca(true);
             set_active_mode(OP_MODE_DRUM);
+        } else if (saved_mode == OP_PLAY_STATE_HARMONY) {
+            set_active_mode(OP_MODE_HARMONY);
         } else if (saved_mode <= (uint8_t)OP_MODE_DRUM) {
             set_active_mode((tiles_op_mode_t)saved_mode);
         }
@@ -3115,7 +3153,9 @@ void tiles_op_mode_scan(void) {
     /* Mode, scale, key and octave, for the next power-up. Before the early
      * return below, so standby (or a game, or transpose) can't hold up a
      * save until the power is pulled. */
-    uint8_t saved_mode = (s_active_mode == OP_MODE_DRUM && s_volca_mode) ? OP_PLAY_STATE_VOLCA : (uint8_t)s_active_mode;
+    uint8_t saved_mode = (s_active_mode == OP_MODE_DRUM && s_volca_mode) ? OP_PLAY_STATE_VOLCA
+                         : s_active_mode == OP_MODE_HARMONY             ? OP_PLAY_STATE_HARMONY
+                                                                        : (uint8_t)s_active_mode;
     tiles_play_state_service(now_ms, saved_mode, tiles_midi_clock_is_running(), !any_pad_touched());
 
     /* Boot guard: keep triangle's LED off for a moment (see
@@ -3261,6 +3301,9 @@ void tiles_op_mode_scan(void) {
          * LED itself. */
         tiles_drum_seq_handle_input(now_ms);
         tiles_drum_seq_render(now_ms, beat_flash_level, transport_led_level(now_ms), clock.running);
+    } else if (s_active_mode == OP_MODE_HARMONY) {
+        tiles_harmony_handle_input(now_ms);
+        tiles_harmony_render(now_ms, beat_flash_level, transport_led_level(now_ms));
     } else if (s_active_mode == OP_MODE_SCENE_LAUNCH) {
         /* True if it just switched modes (Ableton opened melodic mode for a new
          * recording; see s_scene_pending_melodic): skip this frame's render. */
@@ -3329,7 +3372,7 @@ bool tiles_op_mode_test_set_mode(const char *name) {
         tiles_op_mode_t mode;
     } MODES[] = {{"melodic", OP_MODE_MELODIC}, {"chord", OP_MODE_CHORD},   {"sequencer", OP_MODE_SEQUENCER},
                  {"bass", OP_MODE_GUITAR},     {"song", OP_MODE_SONG},     {"ableton", OP_MODE_SCENE_LAUNCH},
-                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM}};
+                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM},    {"harmony", OP_MODE_HARMONY}};
     for (size_t i = 0; i < sizeof(MODES) / sizeof(MODES[0]); i++) {
         if (strcmp(name, MODES[i].name) == 0) {
             if (s_menu_visible) {

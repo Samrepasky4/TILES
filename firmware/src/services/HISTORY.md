@@ -9691,3 +9691,20 @@ change. Search it by file or feature name.
   pad 2, next to bass. Switching routing ends sounding notes on the old one
   first. play_state saves it as mode 7; it survives a crash with the mode.
   The pattern is shared with drum mode. Not in the guide yet (asked).
+- **Harmony mode (0.6.0, 2026-10-15).** Asked for a second chord mode, "a
+  harmonic machine similar to the Orchid", for experimenting and getting
+  out of the box without theory. Researched first: Orchid (4 types + 4
+  extensions, key mode), Omnichord and Stradella (roots by fifths), pop
+  chord statistics (triads dominate), Tymoczko (minimal voice leading),
+  low interval limits, Lehman's Hollywood Harmony (chromatic moves read as
+  "wonder"). The fifths/diatonic layout was rejected by the user as needing
+  knowledge; built the user's chromatic layout instead: roots C..B three per
+  row from bottom-left (neighbours a semitone across, a minor third up: the
+  film-score moves), 12 colours named by mood (bright / dark / ambiguous
+  columns, stranger going up), tap to pick, live recolour keeping shared
+  notes, glide voicing (least movement, C3-C6, root bass C2-B2), "-"/"+"
+  octave, channel pressure, channel 12. Key lock = any scale but chromatic
+  in the scale picker: outside notes dark and silent, chord tones fitted to
+  the scale keeping their role (D bright -> Dm, B bright -> Bdim). Teal,
+  mode menu row 2 pad 3; play_state saves it as 8. Flashed to unit 4 only.
+  Not yet: tilt morph, press bloom, dice, "native colour" glow.
