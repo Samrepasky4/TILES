@@ -9747,3 +9747,5 @@ change. Search it by file or feature name.
     note of the last chord, the 12 pads climbing its notes from the bass
     (tiles_harmony_strum_note()); 400 ms each, 80% of the chord's velocity.
     HOLD style: TILES holds a released chord until the pedal comes up.
+  Harmony's colour is light blue (0.3, 0.6, 1.0), not teal: Ableton's menu
+  pad was already teal (0, 0.5, 0.5).

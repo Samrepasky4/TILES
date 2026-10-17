@@ -43,14 +43,15 @@
  * default), its fifth in the fifth colour, the others dim; the held root
  * white, the chord's notes amber, plucked pads bright amber; the voicing,
  * quality and extensions in use bright (major half-bright when no quality
- * is set); teal underglow. */
+ * is set); light blue underglow. */
 
 #include <stdint.h>
 
-/* The mode's color (menu pad, underglow): teal, not used by any other mode. */
-#define TILES_HARMONY_COLOR_R 0.0f
-#define TILES_HARMONY_COLOR_G 0.8f
-#define TILES_HARMONY_COLOR_B 0.6f
+/* The mode's color (menu pad, underglow): light blue, apart from Ableton's
+ * teal and chord mode's deep blue. */
+#define TILES_HARMONY_COLOR_R 0.3f
+#define TILES_HARMONY_COLOR_G 0.6f
+#define TILES_HARMONY_COLOR_B 1.0f
 
 void tiles_harmony_init(void);
 /* Entering: a finger already down isn't a new press. */
