@@ -9691,10 +9691,10 @@ change. Search it by file or feature name.
   pad 2, next to bass. Switching routing ends sounding notes on the old one
   first. play_state saves it as mode 7; it survives a crash with the mode.
   The pattern is shared with drum mode. Not in the guide yet (asked).
-- **Harmony mode (0.6.0, 2026-10-15).** Asked for a second chord mode, "a
-  harmonic machine similar to the Orchid", for experimenting and getting
-  out of the box without theory. Researched first: Orchid (4 types + 4
-  extensions, key mode), Omnichord and Stradella (roots by fifths), pop
+- **Harmony mode (0.6.0, 2026-10-15).** Asked for a second chord mode, a
+  harmonic machine for experimenting and getting out of the box without
+  theory. Researched first: chord machines built from 4 chord types + 4
+  extensions with a key mode, Omnichord and Stradella (roots by fifths), pop
   chord statistics (triads dominate), Tymoczko (minimal voice leading),
   low interval limits, Lehman's Hollywood Harmony (chromatic moves read as
   "wonder"). The fifths/diatonic layout was rejected by the user as needing
@@ -9708,16 +9708,16 @@ change. Search it by file or feature name.
   the scale keeping their role (D bright -> Dm, B bright -> Bdim). Teal,
   mode menu row 2 pad 3; play_state saves it as 8. Flashed to unit 4 only.
   Not yet: tilt morph, press bloom, dice, "native colour" glow.
-- **Harmony layout B, for an A/B test (0.6.1, 2026-10-15).** Asked: "load
-  the orchid version layout as another one just to ab test". The layout B
+- **Harmony layout B, for an A/B test (0.6.1, 2026-10-15).** Asked to load
+  the type-plus-extension layout as a second one, to A/B test. The layout B
   proposed earlier: the same chromatic roots; column 4 voicing (root, 1st,
   2nd, open; tap to pick, no glide), column 5 quality while held (major,
   minor, sus4, dim; last pressed wins, none = major), column 6 extensions
   while held, combining (6, 7, maj7, 9: Maj+7 = 7, Dim+6 = dim7, Dim+7 =
   m7b5). Changing them under a sounding chord changes it (shared notes
   held). Same key lock and octave. Its own menu pad (row 2 pad 4, light
-  blue), saved by play_state as 9; TEST MODE orchid. Unit 4 only.
-- **Harmony is the Orchid layout only; haptics on the roots (0.6.2,
+  blue), saved by play_state as 9; its own TEST MODE name. Unit 4 only.
+- **Harmony is layout B only; haptics on the roots (0.6.2,
   2026-10-15).** After the A/B: "haptics on the left side. remove other
   layout lets replace it with this one". The mood-colour layout A, its glide
   voicing and its menu pad are gone (git history has them); Harmony is the
@@ -9737,7 +9737,7 @@ change. Search it by file or feature name.
   - Quality and extensions pressed while a chord sounds latch onto it until
     a new root is pressed; pressed while nothing sounds, they wait for the
     next root; the same pad again takes it off; held while striking, they
-    carry (the Orchid's hold-then-press). Voicing stays latched.
+    carry (hold-then-press). Voicing stays latched.
   - Columns 4-6 act on a press past the strike depth (Hall), re-armed when
     the key comes up below TILES_HALL_KEY_UP_DEPTH, not on capacitive touch.
   - Chords wait a 20 ms follow-through past the strike depth before reading

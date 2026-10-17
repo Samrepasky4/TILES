@@ -1,8 +1,9 @@
 #pragma once
 
-/* Harmony mode: a chord machine laid out the Orchid's way. The chord maths
- * (qualities, extensions, voicing, strum notes) is services/harmony_core.h;
- * this file is the hardware side. services/op_mode.c owns the mode switch.
+/* Harmony mode: a chord machine; the right-hand columns shape the chord the
+ * left-hand roots play. The chord maths (qualities, extensions, voicing,
+ * strum notes) is services/harmony_core.h; this file is the hardware side.
+ * services/op_mode.c owns the mode switch.
  *
  *   columns 1-3   the 12 roots, chromatic: C bottom-left, three per row
  *                 going up (C C# D / D# E F / F# G G# / A A# B). Push one:
@@ -23,7 +24,7 @@
  * the notes the two share) until a new root is pressed; pressed while
  * nothing sounds, it waits for the next root. Pressing the same one again
  * takes it off. Held down while a new root is struck, it carries onto that
- * chord too (the Orchid's hold-then-press). No quality = major.
+ * chord too (hold the shape, then press the root). No quality = major.
  *
  * The root also sounds an octave below as the bass. Pressing harder sends
  * channel pressure. MIDI channel 12 (shared with chord mode; one mode plays

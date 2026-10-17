@@ -1,6 +1,6 @@
 /*
  * services/harmony_core.c -- Harmony mode's chords (a quality plus
- * extensions, the Orchid's way), fixed voicings and strum notes. Run with
+ * extensions), fixed voicings and strum notes. Run with
  * test/run.sh.
  */
 

@@ -1,9 +1,9 @@
 #pragma once
 
 /* Harmony mode's chord maths, no hardware (services/harmony.c is the
- * glue): chords built the Orchid's way from a quality plus extensions,
- * voiced at a fixed inversion, and the notes a strum runs through.
- * Host-tested in test/test_harmony_core.c. */
+ * glue): chords built from a quality plus extensions, voiced at a fixed
+ * inversion, and the notes a strum runs through. Host-tested in
+ * test/test_harmony_core.c. */
 
 #include <stdbool.h>
 #include <stdint.h>
