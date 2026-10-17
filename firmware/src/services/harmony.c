@@ -11,6 +11,7 @@
 #include "midi_channels.h"
 #include "midi_out.h"
 #include "note_map.h"
+#include "pedal.h"
 #include "touch.h"
 
 #include <stdbool.h>
@@ -24,11 +25,28 @@
 #define HARMONY_MAX_OCTAVE 2
 #define HARMONY_MAX_NOTES (TILES_HARMONY_MAX_TONES + 1u) /* + bass */
 #define HARMONY_NO_QUALITY 0xFFu
+#define HARMONY_NUM_ROOTS 12u
+
+/* Strikes, as on melodic pads: past the strike depth, then a short
+ * follow-through so the velocity sees how deep the hit went (firing at the
+ * threshold itself read every chord soft). Expression.c's numbers. */
+#define HARMONY_FOLLOWTHROUGH_MS 20u
+/* The right-hand pads act on a press (Hall depth), not on touch, so a
+ * resting finger picks nothing; they re-arm once the key comes up. */
+#define HARMONY_MOD_PRESS_DEPTH TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA
+/* Strum (pedal down): a touch that stays light this long plucks; a press
+ * within it is a chord instead (melodic harmonics' confirm time). A pluck
+ * sounds this long, at this share of the chord's velocity. First guesses. */
+#define HARMONY_STRUM_CONFIRM_MS 40u
+#define HARMONY_STRUM_NOTE_MS 400u
+#define HARMONY_STRUM_VELOCITY_SHARE 0.8f
+#define HARMONY_STRUM_MIN_VELOCITY 30u
 
 /* Light levels (fractions of full, before the power ceiling): first guesses. */
 #define HARMONY_DIM_LEVEL 0.3f
-#define HARMONY_DEFAULT_QUALITY_LEVEL 0.6f /* major while no quality is held */
+#define HARMONY_DEFAULT_QUALITY_LEVEL 0.6f /* major while no quality is set */
 #define HARMONY_CHORD_TONE_LEVEL 0.6f
+#define HARMONY_STRUM_PAD_LEVEL 0.12f /* an out-of-key pad that still strums */
 #define HARMONY_OCTAVE_LED_STEP 0.5f
 
 /* Columns 4-6: voicing teal, quality amber, extensions coral. */
@@ -43,26 +61,46 @@ static const uint8_t EXT_FOR_ROW[TILES_GRID_MAX_ROW + 1u] = {0u, TILES_HARMONY_E
 
 static int8_t s_octave; /* -2..+2 */
 static bool s_prev_touched[TILES_NUM_PADS];
+static bool s_prev_minus, s_prev_plus;
+
+/* Root strikes: touch start, peak depth, when the strike depth was crossed. */
 static uint32_t s_touch_start_ms[TILES_NUM_PADS];
 static float s_peak_depth[TILES_NUM_PADS];
 static bool s_awaiting_strike[TILES_NUM_PADS];
-static bool s_prev_minus, s_prev_plus;
+static bool s_strike_crossed[TILES_NUM_PADS];
+static uint32_t s_crossed_ms[TILES_NUM_PADS];
 
-/* Voicing 0 root position, 1 first, 2 second, 3 open; the held qualities
- * (with press times) and extensions. */
+/* Right-hand pads: pressed (by depth), and when, for "held while striking". */
+static bool s_mod_pressed[TILES_NUM_PADS];
+static uint32_t s_mod_pressed_ms[TILES_NUM_PADS];
+
+/* Voicing (latched for good): 0 root position, 1 first, 2 second, 3 open.
+ * Quality and extensions latch onto the sounding note (s_note_*) until a new
+ * note is pressed; set while nothing sounds they wait for the next note
+ * (s_armed_*). */
 static uint8_t s_voicing;
-static bool s_quality_held[TILES_HARMONY_NUM_QUALITIES];
-static uint32_t s_quality_pressed_ms[TILES_HARMONY_NUM_QUALITIES];
-static uint8_t s_ext_mask;
+static uint8_t s_note_quality, s_armed_quality;
+static uint8_t s_note_ext, s_armed_ext;
 
-/* The sounding chord (s_sounding_pad 0 = none) and what it was built from. */
+/* The sounding chord. s_sounding_pad is the root pad held down (0 = none);
+ * s_chord_ringing covers a chord the pedal holds after its pad lifted. */
 static uint8_t s_sounding_pad;
+static bool s_chord_ringing;
 static uint8_t s_sounding_root_pc;
 static uint8_t s_sounding_velocity;
 static uint16_t s_sounding_signature;
 static uint8_t s_notes[HARMONY_MAX_NOTES];
 static uint8_t s_note_count;
 static uint8_t s_last_pressure;
+
+/* Strum: the last chord's pitch classes and lowest note, a pending light
+ * touch per root pad, and the pluck sounding on each. */
+static uint16_t s_strum_pcs;
+static uint8_t s_strum_from;
+static bool s_strum_pending[TILES_NUM_PADS];
+static uint32_t s_strum_pending_ms[TILES_NUM_PADS];
+static uint8_t s_pluck_note[TILES_NUM_PADS]; /* 0 = none */
+static uint32_t s_pluck_ends_ms[TILES_NUM_PADS];
 
 static bool pad_row_col(uint8_t pad, uint8_t *row, uint8_t *col) {
     for (uint8_t r = 1u; r <= TILES_GRID_MAX_ROW; r++) {
@@ -77,6 +115,8 @@ static bool pad_row_col(uint8_t pad, uint8_t *row, uint8_t *col) {
     return false;
 }
 
+/* A root pad's pitch class; also its strum step (both count from the
+ * bottom-left, three per row). */
 static uint8_t root_pc_for(uint8_t row, uint8_t col) {
     return (uint8_t)((TILES_GRID_MAX_ROW - row) * 3u + (col - 1u));
 }
@@ -85,7 +125,7 @@ static uint8_t root_pc_for(uint8_t row, uint8_t col) {
  * chromatic. A pitch class is in the scale if quantizing leaves it be. */
 static uint16_t scale_mask(void) {
     if (tiles_note_map_get_scale() == TILES_SCALE_CHROMATIC) {
-        return TILES_HARMONY_SCALE_ALL;
+        return 0x0FFFu;
     }
     uint16_t mask = 0u;
     for (uint8_t pc = 0; pc < 12u; pc++) {
@@ -93,33 +133,33 @@ static uint16_t scale_mask(void) {
             mask |= (uint16_t)(1u << pc);
         }
     }
-    return mask != 0u ? mask : TILES_HARMONY_SCALE_ALL;
+    return mask != 0u ? mask : 0x0FFFu;
 }
 
-/* The held quality pressed last, or none. */
-static uint8_t current_quality(void) {
-    uint8_t best = HARMONY_NO_QUALITY;
-    for (uint8_t q = 0; q < TILES_HARMONY_NUM_QUALITIES; q++) {
-        if (s_quality_held[q] &&
-            (best == HARMONY_NO_QUALITY || (int32_t)(s_quality_pressed_ms[q] - s_quality_pressed_ms[best]) > 0)) {
-            best = q;
-        }
-    }
-    return best;
+static bool chord_active(void) {
+    return s_sounding_pad != 0u || s_chord_ringing;
 }
 
-/* Everything a chord is built from, to notice a change under a held chord. */
+/* What the shown quality and extensions are: the sounding note's, or the
+ * ones waiting for the next note. */
+static uint8_t shown_quality(void) {
+    return chord_active() ? s_note_quality : s_armed_quality;
+}
+
+static uint8_t shown_ext(void) {
+    return chord_active() ? s_note_ext : s_armed_ext;
+}
+
 static uint16_t signature(void) {
-    return (uint16_t)((current_quality() << 8) | (s_ext_mask << 4) | s_voicing);
+    return (uint16_t)((s_note_quality << 8) | (s_note_ext << 4) | s_voicing);
 }
 
-/* The chord for root_pc from the held quality and extensions at the picked
- * voicing, plus the bass. */
+/* The chord for root_pc from the sounding note's quality and extensions at
+ * the latched voicing, plus the bass. */
 static uint8_t build_chord(uint8_t root_pc, uint8_t *out) {
     int8_t intervals[TILES_HARMONY_MAX_TONES];
-    uint8_t quality = current_quality();
-    uint8_t n = tiles_harmony_built_chord(quality == HARMONY_NO_QUALITY ? 0u : quality, s_ext_mask, root_pc,
-                                          scale_mask(), intervals);
+    uint8_t n = tiles_harmony_built_chord(s_note_quality == HARMONY_NO_QUALITY ? 0u : s_note_quality, s_note_ext,
+                                          intervals);
     int shift = 12 * s_octave;
     tiles_harmony_voicing_t v;
     tiles_harmony_voice_fixed(root_pc, intervals, n, s_voicing < 3u ? s_voicing : 0u, s_voicing == 3u,
@@ -136,6 +176,15 @@ static uint8_t build_chord(uint8_t root_pc, uint8_t *out) {
     return count;
 }
 
+/* The strum follows the last chord built. */
+static void remember_for_strum(void) {
+    s_strum_pcs = 0u;
+    for (uint8_t i = 0; i < s_note_count; i++) {
+        s_strum_pcs |= (uint16_t)(1u << (s_notes[i] % 12u));
+    }
+    s_strum_from = s_note_count > 0u ? s_notes[0] : 0u;
+}
+
 static void notes_off(void) {
     for (uint8_t i = 0; i < s_note_count; i++) {
         tiles_midi_note_off(HARMONY_CHANNEL, s_notes[i], 0u);
@@ -143,15 +192,56 @@ static void notes_off(void) {
     s_note_count = 0u;
 }
 
-static void chord_strike(uint8_t pad, uint8_t root_pc, uint8_t velocity) {
+static void chord_off(void) {
     notes_off();
-    if (s_sounding_pad != 0u && s_sounding_pad != pad) {
+    if (s_last_pressure != 0u) {
+        tiles_midi_send_channel_pressure(HARMONY_CHANNEL, 0u);
+        s_last_pressure = 0u;
+    }
+    if (s_sounding_pad != 0u) {
         tiles_haptics_stop(s_sounding_pad);
     }
+    s_sounding_pad = 0u;
+    s_chord_ringing = false;
+}
+
+/* The newest held pad of a right-hand column (by press time), or 0. */
+static uint8_t newest_held(uint8_t col) {
+    uint8_t best = 0u;
+    for (uint8_t row = 1u; row <= TILES_GRID_MAX_ROW; row++) {
+        uint8_t pad = board_pad_for_row_col(row, col);
+        if (s_mod_pressed[pad - 1u] &&
+            (best == 0u || (int32_t)(s_mod_pressed_ms[pad - 1u] - s_mod_pressed_ms[best - 1u]) > 0)) {
+            best = pad;
+        }
+    }
+    return best;
+}
+
+static void chord_strike(uint8_t pad, uint8_t root_pc, uint8_t velocity) {
+    chord_off();
+    /* A new note: the last note's quality and extensions let go. It takes
+     * the ones waiting for it, plus any held down right now. */
+    uint8_t held_quality = newest_held(5u);
+    uint8_t row, col;
+    s_note_quality = s_armed_quality;
+    if (held_quality != 0u && pad_row_col(held_quality, &row, &col)) {
+        s_note_quality = (uint8_t)(TILES_GRID_MAX_ROW - row);
+    }
+    s_note_ext = s_armed_ext;
+    for (uint8_t r = 1u; r <= TILES_GRID_MAX_ROW; r++) {
+        if (s_mod_pressed[board_pad_for_row_col(r, 6u) - 1u]) {
+            s_note_ext |= EXT_FOR_ROW[r];
+        }
+    }
+    s_armed_quality = HARMONY_NO_QUALITY;
+    s_armed_ext = 0u;
+
     s_note_count = build_chord(root_pc, s_notes);
     for (uint8_t i = 0; i < s_note_count; i++) {
         tiles_midi_note_on(HARMONY_CHANNEL, s_notes[i], velocity);
     }
+    remember_for_strum();
     s_sounding_pad = pad;
     s_sounding_root_pc = root_pc;
     s_sounding_velocity = velocity;
@@ -176,48 +266,151 @@ static void chord_rebuild(void) {
     }
     memcpy(s_notes, next, n);
     s_note_count = n;
+    remember_for_strum();
 }
 
+/* The root pad lifted: the chord ends, unless the pedal holds notes (HOLD
+ * style; in SYNTH style the synth sustains on its own CC64). */
 static void chord_release(void) {
-    notes_off();
-    if (s_last_pressure != 0u) {
-        tiles_midi_send_channel_pressure(HARMONY_CHANNEL, 0u);
-        s_last_pressure = 0u;
+    if (tiles_pedal_is_holding_notes()) {
+        if (s_sounding_pad != 0u) {
+            tiles_haptics_stop(s_sounding_pad);
+        }
+        s_sounding_pad = 0u;
+        s_chord_ringing = true;
+        return;
     }
-    if (s_sounding_pad != 0u) {
-        tiles_haptics_stop(s_sounding_pad);
+    chord_off();
+}
+
+static void pluck_off(uint8_t i) {
+    if (s_pluck_note[i] != 0u) {
+        tiles_midi_note_off(HARMONY_CHANNEL, s_pluck_note[i], 0u);
+        s_pluck_note[i] = 0u;
     }
-    s_sounding_pad = 0u;
+}
+
+static void pluck(uint8_t pad, uint8_t step, uint32_t now_ms) {
+    uint8_t i = (uint8_t)(pad - 1u);
+    uint8_t note = tiles_harmony_strum_note(s_strum_pcs, s_strum_from, step);
+    if (note == 0u) {
+        return;
+    }
+    pluck_off(i);
+    uint32_t v = (uint32_t)((float)s_sounding_velocity * HARMONY_STRUM_VELOCITY_SHARE);
+    uint8_t velocity = (uint8_t)(v < HARMONY_STRUM_MIN_VELOCITY ? HARMONY_STRUM_MIN_VELOCITY : (v > 127u ? 127u : v));
+    tiles_midi_note_on(HARMONY_CHANNEL, note, velocity);
+    s_pluck_note[i] = note;
+    s_pluck_ends_ms[i] = now_ms + HARMONY_STRUM_NOTE_MS;
 }
 
 void tiles_harmony_init(void) {
     s_octave = 0;
     s_voicing = 0u;
+    s_note_quality = s_armed_quality = HARMONY_NO_QUALITY;
+    s_note_ext = s_armed_ext = 0u;
     s_sounding_pad = 0u;
+    s_chord_ringing = false;
     s_note_count = 0u;
     s_last_pressure = 0u;
+    s_strum_pcs = 0u;
     tiles_harmony_enter();
 }
 
 void tiles_harmony_enter(void) {
     for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
-        s_prev_touched[pad - 1u] = tiles_touch_is_touched(pad);
-        s_awaiting_strike[pad - 1u] = false;
+        uint8_t i = (uint8_t)(pad - 1u);
+        s_prev_touched[i] = tiles_touch_is_touched(pad);
+        s_awaiting_strike[i] = false;
+        s_mod_pressed[i] = s_prev_touched[i]; /* a finger already down isn't a new press */
+        s_strum_pending[i] = false;
     }
-    for (uint8_t q = 0; q < TILES_HARMONY_NUM_QUALITIES; q++) {
-        s_quality_held[q] = false;
-    }
-    s_ext_mask = 0u;
     s_prev_minus = tiles_button_is_pressed(TILES_MINUS_BUTTON_ID);
     s_prev_plus = tiles_button_is_pressed(TILES_PLUS_BUTTON_ID);
 }
 
 void tiles_harmony_leave(void) {
-    chord_release();
+    chord_off();
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        pluck_off(i);
+    }
+}
+
+/* A right-hand pad pressed (not just touched): voicing for good; quality
+ * and extensions onto the sounding note, else waiting for the next one.
+ * The same quality or extension again takes it off. */
+static void mod_press(uint8_t row, uint8_t col) {
+    uint8_t index = (uint8_t)(TILES_GRID_MAX_ROW - row);
+    bool on_note = chord_active();
+    if (col == 4u) {
+        s_voicing = index;
+    } else if (col == 5u) {
+        uint8_t *q = on_note ? &s_note_quality : &s_armed_quality;
+        *q = (*q == index) ? HARMONY_NO_QUALITY : index;
+    } else {
+        uint8_t *e = on_note ? &s_note_ext : &s_armed_ext;
+        *e ^= EXT_FOR_ROW[row];
+    }
+}
+
+static void handle_root(uint8_t pad, uint8_t root_pc, bool in_key, bool touched, bool was, bool strum,
+                        uint32_t now_ms) {
+    uint8_t i = (uint8_t)(pad - 1u);
+    float depth = (float)tiles_hall_get_depth(pad);
+    if (touched && !was) {
+        s_touch_start_ms[i] = now_ms;
+        s_peak_depth[i] = depth;
+        s_awaiting_strike[i] = in_key;
+        s_strike_crossed[i] = false;
+        s_strum_pending[i] = strum && pad != s_sounding_pad;
+        s_strum_pending_ms[i] = now_ms;
+        if (pad != s_sounding_pad) {
+            tiles_haptics_trigger_touch_pulse(pad);
+        }
+    }
+
+    /* Strike: past the strike depth, then the follow-through; a lift inside
+     * it commits with the depth reached. */
+    if (s_awaiting_strike[i]) {
+        if (touched && depth > s_peak_depth[i]) {
+            s_peak_depth[i] = depth;
+        }
+        if (!s_strike_crossed[i] && s_peak_depth[i] >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA) {
+            s_strike_crossed[i] = true;
+            s_crossed_ms[i] = now_ms;
+            s_strum_pending[i] = false; /* a real press: a chord, not a pluck */
+        }
+        if (s_strike_crossed[i] && (!touched || now_ms - s_crossed_ms[i] >= HARMONY_FOLLOWTHROUGH_MS)) {
+            uint8_t velocity =
+                tiles_expression_velocity_from_strike(s_crossed_ms[i] - s_touch_start_ms[i], s_peak_depth[i]);
+            chord_strike(pad, root_pc, velocity);
+            s_awaiting_strike[i] = false;
+        } else if (!touched) {
+            s_awaiting_strike[i] = false; /* a light tap: no chord */
+        }
+    }
+
+    /* Strum: a touch that stays light for the confirm time (or lifts early)
+     * plucks. */
+    if (s_strum_pending[i]) {
+        if (!strum) {
+            s_strum_pending[i] = false;
+        } else if (!touched || now_ms - s_strum_pending_ms[i] >= HARMONY_STRUM_CONFIRM_MS) {
+            s_strum_pending[i] = false;
+            pluck(pad, root_pc, now_ms);
+        }
+    }
+
+    if (!touched && was && s_sounding_pad == pad) {
+        chord_release();
+    }
 }
 
 void tiles_harmony_handle_input(uint32_t now_ms) {
     uint16_t mask = scale_mask();
+    bool pedal = tiles_pedal_is_sustained();
+    bool strum = pedal && s_strum_pcs != 0u;
+
     for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
         uint8_t i = (uint8_t)(pad - 1u), row, col;
         bool touched = tiles_touch_is_touched(pad);
@@ -226,75 +419,43 @@ void tiles_harmony_handle_input(uint32_t now_ms) {
         if (!pad_row_col(pad, &row, &col)) {
             continue;
         }
-        uint8_t index = (uint8_t)(TILES_GRID_MAX_ROW - row); /* 0 = bottom row */
-        if (col == 4u) {
-            if (touched && !was) {
-                s_voicing = index;
+        if (col >= 4u) {
+            /* Pressed by depth; re-armed when the key comes up or the finger
+             * leaves. */
+            uint16_t depth = tiles_hall_get_depth(pad);
+            if (!s_mod_pressed[i] && touched && depth >= HARMONY_MOD_PRESS_DEPTH) {
+                s_mod_pressed[i] = true;
+                s_mod_pressed_ms[i] = now_ms;
+                mod_press(row, col);
                 tiles_haptics_trigger_touch_pulse(pad);
+            } else if (s_mod_pressed[i] && (!touched || depth < TILES_HALL_KEY_UP_DEPTH)) {
+                s_mod_pressed[i] = false;
             }
             continue;
         }
-        if (col == 5u) {
-            if (touched && !was) {
-                s_quality_pressed_ms[index] = now_ms;
-                tiles_haptics_trigger_touch_pulse(pad);
-            }
-            s_quality_held[index] = touched;
-            continue;
-        }
-        if (col == 6u) {
-            if (touched) {
-                s_ext_mask |= EXT_FOR_ROW[row];
-            } else {
-                s_ext_mask &= (uint8_t)~EXT_FOR_ROW[row];
-            }
-            if (touched && !was) {
-                tiles_haptics_trigger_touch_pulse(pad);
-            }
-            continue;
-        }
-
-        /* Roots: outside the key, silent. Else a tick on touch and a strike
-         * (depth past the threshold) plays, as on melodic pads. */
         uint8_t root_pc = root_pc_for(row, col);
-        if (!((mask >> root_pc) & 1u)) {
-            s_awaiting_strike[i] = false;
-            continue;
-        }
-        if (touched && !was) {
-            s_touch_start_ms[i] = now_ms;
-            s_peak_depth[i] = (float)tiles_hall_get_depth(pad);
-            s_awaiting_strike[i] = true;
-            if (s_sounding_pad != pad) {
-                tiles_haptics_trigger_touch_pulse(pad);
-            }
-        }
-        if (touched && s_awaiting_strike[i]) {
-            float depth = (float)tiles_hall_get_depth(pad);
-            if (depth > s_peak_depth[i]) {
-                s_peak_depth[i] = depth;
-            }
-            if (s_peak_depth[i] >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA) {
-                uint8_t velocity = tiles_expression_velocity_from_strike(now_ms - s_touch_start_ms[i], s_peak_depth[i]);
-                chord_strike(pad, root_pc, velocity);
-                s_awaiting_strike[i] = false;
-            }
-        }
-        if (!touched && was) {
-            s_awaiting_strike[i] = false;
-            if (s_sounding_pad == pad) {
-                chord_release();
-            }
-        }
+        handle_root(pad, root_pc, (mask >> root_pc) & 1u, touched, was, strum, now_ms);
     }
 
-    /* A sounding chord follows the held quality, extensions and voicing. */
-    if (s_sounding_pad != 0u && signature() != s_sounding_signature) {
+    /* A sounding chord follows its latched quality, extensions and the voicing. */
+    if (chord_active() && signature() != s_sounding_signature) {
         chord_rebuild();
     }
 
-    /* Pressure on the sounding root: channel pressure, scaled like aftertouch,
-     * and the root pad's buzz follows it. */
+    /* The pedal let go of a chord it was holding. */
+    if (s_chord_ringing && !tiles_pedal_is_holding_notes()) {
+        chord_off();
+    }
+
+    /* Plucks end on their own, or at once when the pedal comes up. */
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        if (s_pluck_note[i] != 0u && (!pedal || (int32_t)(now_ms - s_pluck_ends_ms[i]) >= 0)) {
+            pluck_off(i);
+        }
+    }
+
+    /* Pressure on the held root: channel pressure, scaled like aftertouch,
+     * and the pad's buzz follows it. */
     if (s_sounding_pad != 0u) {
         uint32_t full = tiles_expression_get_aftertouch_sensitivity();
         uint32_t scaled = full != 0u ? (uint32_t)tiles_hall_get_depth(s_sounding_pad) * 127u / full : 0u;
@@ -336,7 +497,9 @@ void tiles_harmony_render(uint32_t now_ms, float beat_flash, float diamond_led) 
     (void)now_ms;
     uint16_t mask = scale_mask();
     uint8_t key_pc = (uint8_t)tiles_note_map_get_key_offset();
-    uint8_t quality = current_quality();
+    uint8_t quality = shown_quality();
+    uint8_t ext = shown_ext();
+    bool strum = tiles_pedal_is_sustained() && s_strum_pcs != 0u;
     /* The sounding chord's pitch classes, to light its notes on the roots. */
     uint16_t chord_pcs = 0u;
     for (uint8_t i = 0; i < s_note_count; i++) {
@@ -351,7 +514,7 @@ void tiles_harmony_render(uint32_t now_ms, float beat_flash, float diamond_led) 
             if (col >= 4u) {
                 float level = HARMONY_DIM_LEVEL;
                 if ((col == 4u && index == s_voicing) || (col == 5u && index == quality) ||
-                    (col == 6u && (s_ext_mask & EXT_FOR_ROW[row]))) {
+                    (col == 6u && (ext & EXT_FOR_ROW[row]))) {
                     level = 1.0f;
                 } else if (col == 5u && index == 0u && quality == HARMONY_NO_QUALITY) {
                     level = HARMONY_DEFAULT_QUALITY_LEVEL;
@@ -361,11 +524,21 @@ void tiles_harmony_render(uint32_t now_ms, float beat_flash, float diamond_led) 
                 b = COLUMN_RGB[col - 4u][2] * level;
             } else {
                 uint8_t pc = root_pc_for(row, col);
-                if (!((mask >> pc) & 1u)) {
-                    /* outside the key: dark */
+                bool in_key = (mask >> pc) & 1u;
+                if (s_pluck_note[pad - 1u] != 0u) {
+                    r = COLUMN_RGB[1][0];
+                    g = COLUMN_RGB[1][1];
+                    b = COLUMN_RGB[1][2]; /* plucked */
                 } else if (s_sounding_pad == pad) {
                     r = g = b = 1.0f;
-                } else if (s_sounding_pad != 0u && ((chord_pcs >> pc) & 1u)) {
+                } else if (!in_key) {
+                    /* outside the key: dark; just visible while it strums */
+                    if (strum) {
+                        r = COLUMN_RGB[1][0] * HARMONY_STRUM_PAD_LEVEL;
+                        g = COLUMN_RGB[1][1] * HARMONY_STRUM_PAD_LEVEL;
+                        b = COLUMN_RGB[1][2] * HARMONY_STRUM_PAD_LEVEL;
+                    }
+                } else if (chord_active() && ((chord_pcs >> pc) & 1u)) {
                     r = COLUMN_RGB[1][0] * HARMONY_CHORD_TONE_LEVEL;
                     g = COLUMN_RGB[1][1] * HARMONY_CHORD_TONE_LEVEL;
                     b = COLUMN_RGB[1][2] * HARMONY_CHORD_TONE_LEVEL;

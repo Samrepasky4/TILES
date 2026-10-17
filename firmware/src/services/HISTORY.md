@@ -9724,3 +9724,26 @@ change. Search it by file or feature name.
   former layout B on row 2 pad 3, teal. A board saved in either (8, or 0.6.1's
   9) opens Harmony. The root pads now feel like melodic pads: a tick on
   touch, a kick on the strike, a buzz following pressure while held.
+- **Harmony: latching, pressed modifiers, velocity, pedal strum; key lock
+  keeps colour notes (0.6.3, 2026-10-17).** Real feedback: "the note
+  quantize of scale locking should allow for the complex voicing notes ... it
+  should just disable the melodic notes outside the scale"; "make the voicing
+  options or tensions or quality latched for that specific note and only
+  release when a new note is pressed; keep voicings latching forever"; "make
+  the things hold reactive not capacitive and chords velocity sensitive";
+  "add strumming of that chord when pedal is held".
+  - Key lock only silences roots outside the scale; chord tones are never
+    fitted (harmony_core's fitting is gone).
+  - Quality and extensions pressed while a chord sounds latch onto it until
+    a new root is pressed; pressed while nothing sounds, they wait for the
+    next root; the same pad again takes it off; held while striking, they
+    carry (the Orchid's hold-then-press). Voicing stays latched.
+  - Columns 4-6 act on a press past the strike depth (Hall), re-armed when
+    the key comes up below TILES_HALL_KEY_UP_DEPTH, not on capacitive touch.
+  - Chords wait a 20 ms follow-through past the strike depth before reading
+    velocity (as expression.c); firing at the threshold read every chord
+    soft.
+  - Pedal down: a light touch on a root pad (staying light 40 ms) plucks one
+    note of the last chord, the 12 pads climbing its notes from the bass
+    (tiles_harmony_strum_note()); 400 ms each, 80% of the chord's velocity.
+    HOLD style: TILES holds a released chord until the pedal comes up.
