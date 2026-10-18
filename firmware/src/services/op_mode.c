@@ -7,6 +7,7 @@
 #include "debug_mode.h"
 #include "drum_seq.h"
 #include "harmony.h"
+#include "bounce.h"
 #include "expression.h"
 #include "expression_control.h"
 #include "game_mode.h"
@@ -51,48 +52,54 @@ typedef enum {
     OP_MODE_SONG,
     OP_MODE_SCENE_LAUNCH,
     OP_MODE_DRUM,
-    OP_MODE_HARMONY,
+    OP_MODE_HARMONY, /* Prism */
+    OP_MODE_BOUNCE,  /* Bouncing notes */
 } tiles_op_mode_t;
 
+static void mode_underglow(void); /* the active mode's colour on the underglow */
+
 /* The mode menu (MENU_SLOTS below) is laid out by family, one column each,
- * the first of the family on row 1 (nearest the buttons):
- *   column 1  melodic (the default), chord + melody
- *   column 2  sequencers: sequencer, drums, Song
- *   column 3  harmonic: Harmony
- *   column 4  bass: bass guitar
- *   column 5  hardware: Ableton, Volca (gear-specific modes, CV/gate ones
- *             to come, go here)
- *   column 6  experimental (none yet)
- * A new mode is a row in MENU_SLOTS. */
+ * the first of the family on row 1 (nearest the buttons), and each family
+ * has its own colour family, so a column reads as one kind of mode:
+ *   column 1  magenta    Melodic (the default), Duet (chords + melody)
+ *   column 2  greens     Sequencer, Drums (lime), Song (yellow)
+ *   column 3  blue       Prism (harmony.h)
+ *   column 4  amber      Bass guitar
+ *   column 5  teal/cyan  Ableton, Volca (gear-specific modes, CV/gate ones to
+ *                        come, go here)
+ *   column 6  violet     Bouncing notes (experimental modes)
+ * A mode's underglow is always its menu colour. A new mode is a row in
+ * MENU_SLOTS. */
 /* play_state's saved mode numbers past the drum mode: Volca (drum mode with
  * its flag) and Harmony. Fixed: they're in flash. */
 #define OP_PLAY_STATE_VOLCA 7u
 #define OP_PLAY_STATE_HARMONY 8u
-#define OP_PLAY_STATE_HARMONY_OLD_B 9u /* 0.6.1's A/B test layout: opens Harmony */
+#define OP_PLAY_STATE_HARMONY_OLD_B 9u /* 0.6.1's A/B test layout: opens Prism */
+#define OP_PLAY_STATE_BOUNCE 10u
 
-/* Mode colors: melodic = Sentia magenta, sequencer = red, bass guitar =
- * amber (matches its fretboard), chord = blue (matches its chord strip). */
+/* Mode colors, by family (see the menu above): melodic = Sentia magenta,
+ * Duet = pink; sequencer = green (drums lime, drum_seq.h; Song yellow, like
+ * its capture underglow, its track pads a random hue in a yellow-green-to-
+ * orange band); bass guitar = amber (its fretboard); Ableton = teal. Red is
+ * left to the crash indicator. */
 #define OP_MENU_MELODIC_R 1.0f
 #define OP_MENU_MELODIC_G 0.0f
 #define OP_MENU_MELODIC_B 1.0f
-#define OP_MENU_CHORD_R 0.0f
-#define OP_MENU_CHORD_G 0.0f
-#define OP_MENU_CHORD_B 1.0f
-#define OP_MENU_SEQUENCER_R 1.0f
-#define OP_MENU_SEQUENCER_G 0.0f
-#define OP_MENU_SEQUENCER_B 0.0f
+#define OP_MENU_CHORD_R 1.0f
+#define OP_MENU_CHORD_G 0.3f
+#define OP_MENU_CHORD_B 0.55f
+#define OP_MENU_SEQUENCER_R 0.0f
+#define OP_MENU_SEQUENCER_G 1.0f
+#define OP_MENU_SEQUENCER_B 0.15f
 #define OP_MENU_GUITAR_R 1.0f
-#define OP_MENU_GUITAR_G 0.5f
+#define OP_MENU_GUITAR_G 0.45f
 #define OP_MENU_GUITAR_B 0.0f
-/* Song = yellow (like the capture underglow); each track's pad gets a
- * random hue in a yellow-green-to-orange band. */
 #define OP_MENU_SONG_R 1.0f
-#define OP_MENU_SONG_G 1.0f
+#define OP_MENU_SONG_G 0.9f
 #define OP_MENU_SONG_B 0.0f
-/* Ableton (Scene Launch) = teal, matching its idle underglow. */
 #define OP_MENU_SCENE_LAUNCH_R 0.0f
-#define OP_MENU_SCENE_LAUNCH_G 0.5f
-#define OP_MENU_SCENE_LAUNCH_B 0.5f
+#define OP_MENU_SCENE_LAUNCH_G 0.75f
+#define OP_MENU_SCENE_LAUNCH_B 0.55f
 
 /* Triangle LED while the mode menu is open (monochrome, so brightness
  * only). Off otherwise. */
@@ -934,9 +941,7 @@ static void render_sequencer(float beat_flash_level, bool transport_running) {
         }
         tiles_buttons_set_standby_led(board_button_for_col(col), level);
     }
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
-    }
+    mode_underglow();
 }
 
 /* ---- Per-step editing ------------------------------------------------------
@@ -1131,9 +1136,7 @@ static void render_pitch_edit(uint32_t now_ms, bool transport_running) {
         }
     }
     render_transport_toggle_leds(now_ms, transport_running);
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
-    }
+    mode_underglow();
 }
 
 /* A meter across all 24 pads: the lit count follows the live value. */
@@ -1146,9 +1149,7 @@ static void render_value_meter(uint32_t now_ms, uint8_t lit_count, float r, floa
         }
     }
     render_transport_toggle_leds(now_ms, transport_running);
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
-    }
+    mode_underglow();
 }
 
 static void render_edit_mode(uint32_t now_ms, bool transport_running) {
@@ -1193,7 +1194,8 @@ static bool mode_owns_standby_grid(tiles_op_mode_t mode) {
     }
     /* Ableton mode's grid is all launch pads, drum mode's steps and drums;
      * no live-play exception. */
-    return mode == OP_MODE_SEQUENCER || mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_DRUM || mode == OP_MODE_HARMONY;
+    return mode == OP_MODE_SEQUENCER || mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_DRUM || mode == OP_MODE_HARMONY ||
+           mode == OP_MODE_BOUNCE;
 }
 
 /* ---- Mode menu ------------------------------------------------------------ */
@@ -1238,18 +1240,20 @@ typedef struct {
 
 static const menu_slot_t MENU_SLOTS[] = {
     {1u, 1u, OP_MODE_MELODIC, false, -1, OP_MENU_MELODIC_R, OP_MENU_MELODIC_G, OP_MENU_MELODIC_B},
-    {2u, 1u, OP_MODE_CHORD, false, TILES_MENU_CHORD, OP_MENU_CHORD_R, OP_MENU_CHORD_G, OP_MENU_CHORD_B},
+    {2u, 1u, OP_MODE_CHORD, false, TILES_MENU_DUET, OP_MENU_CHORD_R, OP_MENU_CHORD_G, OP_MENU_CHORD_B},
     {1u, 2u, OP_MODE_SEQUENCER, false, TILES_MENU_SEQUENCER, OP_MENU_SEQUENCER_R, OP_MENU_SEQUENCER_G,
      OP_MENU_SEQUENCER_B},
     {2u, 2u, OP_MODE_DRUM, false, TILES_MENU_DRUMS, TILES_DRUM_SEQ_COLOR_R, TILES_DRUM_SEQ_COLOR_G,
      TILES_DRUM_SEQ_COLOR_B},
     {3u, 2u, OP_MODE_SONG, false, TILES_MENU_SONG, OP_MENU_SONG_R, OP_MENU_SONG_G, OP_MENU_SONG_B},
-    {1u, 3u, OP_MODE_HARMONY, false, TILES_MENU_HARMONY, TILES_HARMONY_COLOR_R, TILES_HARMONY_COLOR_G,
+    {1u, 3u, OP_MODE_HARMONY, false, TILES_MENU_PRISM, TILES_HARMONY_COLOR_R, TILES_HARMONY_COLOR_G,
      TILES_HARMONY_COLOR_B},
     {1u, 4u, OP_MODE_GUITAR, false, TILES_MENU_BASS, OP_MENU_GUITAR_R, OP_MENU_GUITAR_G, OP_MENU_GUITAR_B},
     {1u, 5u, OP_MODE_SCENE_LAUNCH, false, TILES_MENU_ABLETON, OP_MENU_SCENE_LAUNCH_R, OP_MENU_SCENE_LAUNCH_G,
      OP_MENU_SCENE_LAUNCH_B},
     {2u, 5u, OP_MODE_DRUM, true, TILES_MENU_VOLCA, TILES_VOLCA_COLOR_R, TILES_VOLCA_COLOR_G, TILES_VOLCA_COLOR_B},
+    {1u, 6u, OP_MODE_BOUNCE, false, TILES_MENU_BOUNCE, TILES_BOUNCE_COLOR_R, TILES_BOUNCE_COLOR_G,
+     TILES_BOUNCE_COLOR_B},
 };
 #define MENU_SLOT_COUNT (sizeof(MENU_SLOTS) / sizeof(MENU_SLOTS[0]))
 
@@ -1278,6 +1282,17 @@ static const menu_slot_t *slot_for(tiles_op_mode_t mode, bool volca) {
         }
     }
     return NULL;
+}
+
+/* The active mode's colour on the underglow, for the views that draw it
+ * (sequencer, Song); the others draw it themselves, and lighting.c shows it
+ * outside standby (set in set_active_mode()). */
+static void mode_underglow(void) {
+    const menu_slot_t *slot = slot_for(s_active_mode, s_volca_mode);
+    float r = slot != NULL ? slot->r : 1.0f, g = slot != NULL ? slot->g : 1.0f, b = slot != NULL ? slot->b : 1.0f;
+    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
+        tiles_lighting_set_standby_underglow_rgb(i, r, g, b);
+    }
 }
 
 /* The slot pulsing as current: the pending pick, else the active mode. */
@@ -1780,14 +1795,12 @@ static void render_pattern_bank(uint32_t now_ms) {
         float level = (col == TILES_DIAMOND_BUTTON_COL) ? OP_TRIANGLE_LED_MENU_LEVEL : 0.0f;
         tiles_buttons_set_standby_led(board_button_for_col(col), level);
     }
-    /* Underglow: this loop only writes the idle (off) state. The confirmation
-     * colors come from services/lighting.c's priority chain, the single
-     * writer; writing them here too was overwritten every pass by debug
-     * mode's pulse. */
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        if (!save_flash_showing) {
-            tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
-        }
+    /* Underglow: this only writes the idle state (the mode's colour). The
+     * confirmation colors come from services/lighting.c's priority chain, the
+     * single writer; writing them here too was overwritten every pass by
+     * debug mode's pulse. */
+    if (!save_flash_showing) {
+        mode_underglow();
     }
 }
 
@@ -1981,6 +1994,9 @@ static void set_active_mode(tiles_op_mode_t mode) {
     if (mode == OP_MODE_HARMONY) {
         tiles_harmony_enter();
     }
+    if (mode == OP_MODE_BOUNCE) {
+        tiles_bounce_mode_enter();
+    }
     /* Modes that draw the whole grid claim standby (mode_owns_standby_grid()). */
     if (mode_owns_standby_grid(mode)) {
         tiles_lighting_set_standby_active(true);
@@ -2011,11 +2027,17 @@ static void set_active_mode(tiles_op_mode_t mode) {
     tiles_buttons_set_override_led(TILES_TRIANGLE_BUTTON_ID, 0.0f);
     s_scene_pending_melodic = false;
     if (mode == OP_MODE_SCENE_LAUNCH || mode == OP_MODE_SEQUENCER || mode == OP_MODE_SONG || mode == OP_MODE_DRUM ||
-        mode == OP_MODE_HARMONY) {
+        mode == OP_MODE_HARMONY || mode == OP_MODE_BOUNCE) {
         s_ableton_capture_active = false;
     }
     if (mode == OP_MODE_SCENE_LAUNCH) {
         scene_launch_enter();
+    }
+    /* The underglow outside standby is the mode's colour (melodic, Duet, bass
+     * guitar); the modes drawing through standby draw the same colour. */
+    const menu_slot_t *slot = slot_for(mode, s_volca_mode);
+    if (slot != NULL) {
+        tiles_lighting_set_mode_underglow(slot->r, slot->g, slot->b);
     }
     printf("[op_mode] active mode -> %d\n", (int)mode);
 }
@@ -2309,9 +2331,7 @@ static void render_seq_capture(uint32_t now_ms) {
     for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
         tiles_buttons_set_standby_led(board_button_for_col(col), 0.0f);
     }
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
-    }
+    mode_underglow();
 }
 
 /* Mode menu taps: a touch clicks (any pad); pressing a mode slot past
@@ -2668,7 +2688,7 @@ static void handle_circle_tap(uint32_t now_ms) {
         /* Tap tempo is sequencer-only, plus while a Song capture runs (which can
          * start without a tempo and needs a way to set one). */
         bool mode_ok = (s_active_mode == OP_MODE_SEQUENCER && s_seq_edit_mode == OP_SEQ_EDIT_NONE) ||
-                       s_active_mode == OP_MODE_DRUM || s_song_capture_active;
+                       s_active_mode == OP_MODE_DRUM || s_active_mode == OP_MODE_BOUNCE || s_song_capture_active;
         bool combo_conflict = tiles_button_is_pressed(TILES_DIAMOND_BUTTON_ID) ||
                                tiles_button_is_pressed(TILES_TRIANGLE_BUTTON_ID) ||
                                tiles_button_is_pressed(TILES_SQUARE_BUTTON_ID);
@@ -2700,7 +2720,7 @@ static bool any_lane_running(void) {
             return true;
         }
     }
-    return tiles_drum_seq_is_running();
+    return tiles_drum_seq_is_running() || tiles_bounce_mode_is_running();
 }
 
 /* Declared early for tiles_op_mode_is_sequencer_active(). Up to
@@ -2734,6 +2754,17 @@ static void handle_transport_and_length(uint32_t now_ms) {
     bool guitar_active = (s_active_mode == OP_MODE_GUITAR);
     bool scene_launch_active = (s_active_mode == OP_MODE_SCENE_LAUNCH);
     bool drum_active = (s_active_mode == OP_MODE_DRUM);
+    bool bounce_active = (s_active_mode == OP_MODE_BOUNCE);
+
+    /* Bouncing notes: circle held first, then "-"/"+" = scroll one lane. */
+    if (bounce_active && minus_held && !s_minus_was_held && circle_held) {
+        tiles_bounce_mode_scroll(-1);
+        s_minus_used_as_combo = true;
+    }
+    if (bounce_active && plus_held && !s_plus_was_held && circle_held) {
+        tiles_bounce_mode_scroll(+1);
+        s_plus_used_as_combo = true;
+    }
 
     /* Drums: circle held first, then "-"/"+" = the previous / next 8 drums. */
     if (drum_active && minus_held && !s_minus_was_held && circle_held) {
@@ -2779,6 +2810,17 @@ static void handle_transport_and_length(uint32_t now_ms) {
                 s_seq_current_step[lane] = 0u;
                 s_seq_note_sounding[lane] = false;
                 s_seq_pending_start[lane] = false;
+            }
+        } else if (bounce_active && !s_minus_used_as_combo) {
+            /* Bouncing notes: "-" stops in place; "-" again drops every ball back
+             * to its top. */
+            if (tiles_bounce_mode_is_running()) {
+                tiles_bounce_mode_pause();
+                if (!any_lane_running()) {
+                    tiles_midi_clock_set_running(false);
+                }
+            } else {
+                tiles_bounce_mode_rewind();
             }
         } else if (drum_active && !s_minus_used_as_combo) {
             /* Drums: "-" pauses in place; "-" again rewinds (as the sequencer). */
@@ -2829,6 +2871,14 @@ static void handle_transport_and_length(uint32_t now_ms) {
                 s_seq_pending_start[lane] = true;
                 s_seq_pending_restart[lane] = false;
             }
+        } else if (bounce_active && !s_plus_used_as_combo && !tiles_midi_clock_external_active(now_ms)) {
+            /* No clock coming in: every ball lands now, the clock restarted with it. */
+            tiles_bounce_mode_start(true);
+            (void)tiles_midi_clock_restart();
+        } else if (bounce_active && !s_plus_used_as_combo) {
+            /* Following an external clock: start with it (needs it running). */
+            tiles_bounce_mode_start(!tiles_bounce_mode_is_running());
+            tiles_midi_clock_set_running(true);
         } else if (drum_active && !s_plus_used_as_combo && !tiles_midi_clock_external_active(now_ms)) {
             /* Drums, no clock coming in: step 1 now, the clock restarted with it
              * (as in the sequencer). */
@@ -3033,6 +3083,7 @@ void tiles_op_mode_init(bool crash_recovered) {
     tiles_drum_seq_init(tiles_storage_drum_region_safe() ? tiles_storage_drum_ops() : NULL);
     tiles_drum_seq_set_volca(s_volca_mode);
     tiles_harmony_init();
+    tiles_bounce_mode_init();
 
     /* Register Ableton mode's SysEx callback (harmless if never used). */
     scene_launch_init();
@@ -3047,6 +3098,8 @@ void tiles_op_mode_init(bool crash_recovered) {
             set_active_mode(OP_MODE_DRUM);
         } else if (saved_mode == OP_PLAY_STATE_HARMONY || saved_mode == OP_PLAY_STATE_HARMONY_OLD_B) {
             set_active_mode(OP_MODE_HARMONY);
+        } else if (saved_mode == OP_PLAY_STATE_BOUNCE) {
+            set_active_mode(OP_MODE_BOUNCE);
         } else if (saved_mode <= (uint8_t)OP_MODE_DRUM) {
             set_active_mode((tiles_op_mode_t)saved_mode);
         }
@@ -3067,6 +3120,12 @@ void tiles_op_mode_init(bool crash_recovered) {
             }
         }
     }
+    /* The underglow in the mode's colour from boot (set_active_mode() keeps it
+     * after). */
+    const menu_slot_t *boot_slot = slot_for(s_active_mode, s_volca_mode);
+    if (boot_slot != NULL) {
+        tiles_lighting_set_mode_underglow(boot_slot->r, boot_slot->g, boot_slot->b);
+    }
 }
 
 void tiles_op_mode_scan(void) {
@@ -3077,6 +3136,7 @@ void tiles_op_mode_scan(void) {
      * save until the power is pulled. */
     uint8_t saved_mode = (s_active_mode == OP_MODE_DRUM && s_volca_mode) ? OP_PLAY_STATE_VOLCA
                          : s_active_mode == OP_MODE_HARMONY             ? OP_PLAY_STATE_HARMONY
+                         : s_active_mode == OP_MODE_BOUNCE              ? OP_PLAY_STATE_BOUNCE
                                                                         : (uint8_t)s_active_mode;
     tiles_play_state_service(now_ms, saved_mode, tiles_midi_clock_is_running(), !any_pad_touched());
 
@@ -3132,6 +3192,11 @@ void tiles_op_mode_scan(void) {
         s_seq_pending_restart[s_seq_edit_lane] = false;
     }
     /* Same for the drum sequencer in drum mode. */
+    if (s_active_mode == OP_MODE_BOUNCE && clock.start_edge && clock.source_is_tap_tempo &&
+        !tiles_bounce_mode_is_running()) {
+        tiles_bounce_mode_start(true);
+        tiles_midi_clock_set_running(true);
+    }
     if (s_active_mode == OP_MODE_DRUM && clock.start_edge && clock.source_is_tap_tempo &&
         !tiles_drum_seq_is_running()) {
         tiles_drum_seq_start(false);
@@ -3158,6 +3223,8 @@ void tiles_op_mode_scan(void) {
     }
     /* The drum sequencer too, shown or not. */
     tiles_drum_seq_advance(clock, s_active_mode == OP_MODE_DRUM && !s_menu_visible && !s_scale_menu_visible);
+    /* The bouncing balls too, shown or not. */
+    tiles_bounce_mode_advance(clock);
     /* Right after the advance: it saves just after a step starts. */
     tiles_drum_seq_persist_service(now_ms, clock.running);
 
@@ -3226,6 +3293,9 @@ void tiles_op_mode_scan(void) {
     } else if (s_active_mode == OP_MODE_HARMONY) {
         tiles_harmony_handle_input(now_ms);
         tiles_harmony_render(now_ms, beat_flash_level, transport_led_level(now_ms));
+    } else if (s_active_mode == OP_MODE_BOUNCE) {
+        tiles_bounce_mode_handle_input(now_ms);
+        tiles_bounce_mode_render(now_ms, beat_flash_level, transport_led_level(now_ms), clock.running);
     } else if (s_active_mode == OP_MODE_SCENE_LAUNCH) {
         /* True if it just switched modes (Ableton opened melodic mode for a new
          * recording; see s_scene_pending_melodic): skip this frame's render. */
@@ -3285,7 +3355,8 @@ bool tiles_op_mode_is_sequencer_active(void) {
      * longer timeouts. (Lane flags, not the shared clock: an external clock
      * can tick with every lane stopped.) */
     return s_active_mode == OP_MODE_SEQUENCER || any_lane_running() || s_active_mode == OP_MODE_SONG ||
-           any_song_slot_running() || s_active_mode == OP_MODE_DRUM;
+           any_song_slot_running() || s_active_mode == OP_MODE_DRUM || s_active_mode == OP_MODE_BOUNCE ||
+           tiles_bounce_mode_is_running();
 }
 
 void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool enabled) {
@@ -3303,6 +3374,10 @@ void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool
     }
 }
 
+bool tiles_op_mode_square_toggles_bend(void) {
+    return s_active_mode != OP_MODE_BOUNCE;
+}
+
 bool tiles_op_mode_get_menu_entry_enabled(tiles_op_mode_menu_entry_t entry) {
     return entry < TILES_MENU_ENTRY_COUNT && s_menu_entry_enabled[entry];
 }
@@ -3313,7 +3388,8 @@ bool tiles_op_mode_test_set_mode(const char *name) {
         tiles_op_mode_t mode;
     } MODES[] = {{"melodic", OP_MODE_MELODIC}, {"chord", OP_MODE_CHORD},   {"sequencer", OP_MODE_SEQUENCER},
                  {"bass", OP_MODE_GUITAR},     {"song", OP_MODE_SONG},     {"ableton", OP_MODE_SCENE_LAUNCH},
-                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM},    {"harmony", OP_MODE_HARMONY}};
+                 {"drums", OP_MODE_DRUM},      {"volca", OP_MODE_DRUM},    {"harmony", OP_MODE_HARMONY},
+                 {"duet", OP_MODE_CHORD},      {"prism", OP_MODE_HARMONY}, {"bounce", OP_MODE_BOUNCE}};
     for (size_t i = 0; i < sizeof(MODES) / sizeof(MODES[0]); i++) {
         if (strcmp(name, MODES[i].name) == 0) {
             if (s_menu_visible) {
@@ -3799,9 +3875,7 @@ static void render_song_overview(uint32_t now_ms) {
  * isn't called then.) Also drawn during the step editor's pitch pick,
  * where the pads show the live melodic surface. */
 static void render_song_underglow(void) {
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, 1.0f, 1.0f, 0.0f);
-    }
+    mode_underglow();
 }
 
 /* ---- Song mode: step editor -------------------------------------------------

@@ -34,6 +34,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_drum_pattern.c src
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_harmony_core.c src/services/harmony_core.c -o /tmp/sentia_tiles_test_harmony_core
 /tmp/sentia_tiles_test_harmony_core
 
+# Bouncing notes' balls: drop, landings, polyrhythm.
+cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/services/bounce_core.c -o /tmp/sentia_tiles_test_bounce_core
+/tmp/sentia_tiles_test_bounce_core
+
 # Flash store (power-cut simulation) and the settings table on top of it.
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/storage test/test_kv_store.c src/storage/kv_store.c -o /tmp/sentia_tiles_test_kv_store
 /tmp/sentia_tiles_test_kv_store

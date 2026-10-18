@@ -560,8 +560,8 @@ void tiles_drum_seq_handle_input(uint32_t now) {
 
 /* Each bank of 8 drums has its own shade of the mode's color on the drum
  * pads, so a new set reads as new. Drum mode: lime (the first bank), a
- * darker green, a cooler green, olive. Volca mode: purple, a darker
- * purple, a pinker one, a bluer one. Then around again. */
+ * darker green, a cooler green, olive. Volca mode: cyan, a darker cyan, a
+ * paler one, a bluer one. Then around again. */
 static void bank_green(float level, float *r, float *g, float *b) {
     static const float GREENS[4][3] = {
         {TILES_DRUM_SEQ_COLOR_R, TILES_DRUM_SEQ_COLOR_G, TILES_DRUM_SEQ_COLOR_B},
@@ -569,13 +569,13 @@ static void bank_green(float level, float *r, float *g, float *b) {
         {0.0f, 1.0f, 0.45f},
         {0.25f, 0.45f, 0.0f},
     };
-    static const float PURPLES[4][3] = {
+    static const float CYANS[4][3] = {
         {TILES_VOLCA_COLOR_R, TILES_VOLCA_COLOR_G, TILES_VOLCA_COLOR_B},
-        {0.3f, 0.0f, 0.5f},
-        {0.85f, 0.1f, 1.0f},
-        {0.35f, 0.15f, 1.0f},
+        {0.0f, 0.4f, 0.55f},
+        {0.35f, 0.9f, 1.0f},
+        {0.0f, 0.45f, 1.0f},
     };
-    const float (*shades)[3] = s_volca ? PURPLES : GREENS;
+    const float (*shades)[3] = s_volca ? CYANS : GREENS;
     uint8_t i = (uint8_t)((((int)s_bank % 4) + 4) % 4);
     *r = shades[i][0] * level;
     *g = shades[i][1] * level;

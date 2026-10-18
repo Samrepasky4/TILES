@@ -290,6 +290,8 @@ static tiles_tca9554_t s_led_mux;
 static float s_pad_press[TILES_NUM_PADS]; /* touch-driven, white, floored at the idle level */
 static tiles_rgb01_t s_pad_standby_rgb[TILES_NUM_PADS]; /* standby color, no floor */
 static tiles_rgb01_t s_underglow_rgb[TILES_LIGHTING_NUM_UNDERGLOW_PIXELS];
+/* The underglow outside standby: the active mode's colour (white until set). */
+static tiles_rgb01_t s_mode_underglow = {1.0f, 1.0f, 1.0f};
 static uint8_t s_service_cursor;
 /* Bench test white level (0-255), 0 = off. See tiles_lighting_set_test_white(). */
 static uint8_t s_test_white_level;
@@ -717,7 +719,7 @@ bool tiles_lighting_init(void) {
         s_pad_standby_rgb[i] = (tiles_rgb01_t){0.0f, 0.0f, 0.0f};
     }
     for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
-        s_underglow_rgb[i] = (tiles_rgb01_t){1.0f, 1.0f, 1.0f};
+        s_underglow_rgb[i] = s_mode_underglow;
     }
     s_service_cursor = 0;
     s_initialized = false;
@@ -871,14 +873,27 @@ void tiles_lighting_service(void) {
     s_service_cursor = (uint8_t)((s_service_cursor + 1u) % TILES_NUM_PADS);
 }
 
+void tiles_lighting_set_mode_underglow(float r, float g, float b) {
+    s_mode_underglow = (tiles_rgb01_t){clamp01(r), clamp01(g), clamp01(b)};
+    if (s_standby_active) {
+        return; /* the standby owner draws the underglow; restored on release */
+    }
+    for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
+        s_underglow_rgb[i] = s_mode_underglow;
+    }
+    if (s_initialized) {
+        write_underglow();
+    }
+}
+
 void tiles_lighting_set_standby_active(bool active) {
     s_standby_active = active;
 
     if (!active) {
         /* Pads repaint on their own (touch calls set_pad_press every scan); the
-         * underglow has no other driver, so restore it here. */
+         * underglow has no other driver, so restore it here: the mode's colour. */
         for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
-            s_underglow_rgb[i] = (tiles_rgb01_t){1.0f, 1.0f, 1.0f};
+            s_underglow_rgb[i] = s_mode_underglow;
         }
         if (s_initialized) {
             write_underglow();

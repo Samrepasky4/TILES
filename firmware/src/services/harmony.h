@@ -1,7 +1,7 @@
 #pragma once
 
-/* Harmony mode: a chord machine; the right-hand columns shape the chord the
- * left-hand roots play. The chord maths (qualities, extensions, voicing,
+/* Prism mode (harmony.c): a chord machine; the right-hand columns shape the
+ * chord the left-hand roots play. The chord maths (qualities, extensions, voicing,
  * strum notes) is services/harmony_core.h; this file is the hardware side.
  * services/op_mode.c owns the mode switch.
  *
@@ -44,14 +44,13 @@
  * default), its fifth in the fifth colour, the others dim; the held root
  * white, the chord's notes amber, plucked pads bright amber; the voicing,
  * quality and extensions in use bright (major half-bright when no quality
- * is set); light blue underglow. */
+ * is set); blue underglow. */
 
 #include <stdint.h>
 
-/* The mode's color (menu pad, underglow): light blue, apart from Ableton's
- * teal and chord mode's deep blue. */
-#define TILES_HARMONY_COLOR_R 0.3f
-#define TILES_HARMONY_COLOR_G 0.6f
+/* The mode's color (menu pad, underglow): blue, the harmonic family. */
+#define TILES_HARMONY_COLOR_R 0.15f
+#define TILES_HARMONY_COLOR_G 0.35f
 #define TILES_HARMONY_COLOR_B 1.0f
 
 void tiles_harmony_init(void);

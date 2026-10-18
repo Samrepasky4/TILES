@@ -99,6 +99,11 @@ void tiles_lighting_service(void);
  * repaint on their next press update (touch calls every scan). */
 void tiles_lighting_set_standby_active(bool active);
 
+/* The underglow's colour outside standby: the active mode's colour (op_mode.c
+ * sets it on every mode change). Modes that draw through standby set their
+ * own, the same colour. */
+void tiles_lighting_set_mode_underglow(float r, float g, float b);
+
 /* Sets a pad's color, each channel 0.0-1.0 scaled by the ceiling. No idle
  * floor: {0,0,0} is black. No-op unless standby is active. */
 void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, float b);

@@ -475,7 +475,7 @@ void tiles_expression_control_scan(void) {
         /* A real click: closes a sticky menu, otherwise toggles pitch bend. */
         if (s_submenu_sticky) {
             s_submenu_sticky = false;
-        } else {
+        } else if (tiles_op_mode_square_toggles_bend()) {
             tiles_expression_toggle_pitch_bend();
         }
     }

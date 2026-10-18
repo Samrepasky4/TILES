@@ -9761,3 +9761,28 @@ change. Search it by file or feature name.
   modes.volca (0x0800-0x0807, default on): off = dark, unpickable, and the
   mode in use falls back to melodic; melodic can't be removed. Mode names in
   the guide are pending marketable names (not changed until approved).
+- **Colour families, Duet / Prism, Bouncing notes (0.8.0, 2026-10-17).**
+  Asked: "redo the hues for modes so it's grouped by colors well but not
+  confusing, so color families per mode, and the underglow matches the mode
+  always; call it duet mode, prism mode, volca stays volca"; and a new mode,
+  bouncing notes.
+  - Colours by family (column): magenta (melodic, Duet pink), greens
+    (sequencer green, drums lime, Song yellow), blue (Prism), amber (bass),
+    teal/cyan (Ableton teal, Volca cyan), violet (Bouncing notes). The
+    sequencer left red (the crash indicator's colour); Duet left blue; Volca
+    left purple. Every mode's underglow is its menu colour: lighting.c's
+    normal underglow follows the mode (it was white in melodic, chord and
+    bass); the sequencer's views show it (they were dark); menus stay dark.
+  - Names: chord mode is Duet, Harmony is Prism (code names unchanged:
+    OP_MODE_CHORD, harmony.c); settings modes.duet / modes.prism keep ids
+    0x0800 / 0x0804; TEST MODE takes duet / prism (old names still work).
+  - Bouncing notes (bounce.c, bounce_core.c): each column a lane; tap a
+    pad to drop that lane's ball from its height (the same height again:
+    off); it lands every 1/2/4/6 sixteenths for heights 1-4, louder from
+    higher, playing the lane's scale note (key note up, octave from
+    elsewhere) on channel 11. 12 lanes, circle + "-"/"+" scroll one column,
+    all pads flash pink at either end. "-"/"+" stop/start like the
+    sequencer ("+" with no clock in: every ball lands now, clock restarted);
+    circle taps tempo; square is only the Feel menu here (no bend toggle,
+    tiles_op_mode_square_toggles_bend()). Keeps bouncing in other modes.
+    Column 6, violet; modes.bounce (0x0808); play_state 10.

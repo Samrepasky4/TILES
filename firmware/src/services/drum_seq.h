@@ -52,11 +52,11 @@
  * Volca Sample on multi-channel firmware (one part per MIDI channel): drum
  * k (the k-th from C1: the first bank's eight, then the next bank's) plays
  * C (TILES_VOLCA_NOTE) on MIDI channel k, 1-16, instead of its Drum Rack
- * note on channel 10. Drums past channel 16 send nothing. Purple where drum
+ * note on channel 10. Drums past channel 16 send nothing. Cyan where drum
  * mode is lime. op_mode.c's menu turns it on and off. */
 #define TILES_VOLCA_NOTE 60u /* C4: the sample at its own pitch */
-#define TILES_VOLCA_COLOR_R 0.6f
-#define TILES_VOLCA_COLOR_G 0.0f
+#define TILES_VOLCA_COLOR_R 0.0f /* cyan: the hardware family, with Ableton's teal */
+#define TILES_VOLCA_COLOR_G 0.75f
 #define TILES_VOLCA_COLOR_B 1.0f
 
 /* Switches the drum output between Drum Rack (false) and Volca (true).

@@ -110,14 +110,15 @@ LOOK_ENTRY(led_intensity, TILES_LOOK_LED_INTENSITY_PERCENT)
         return U(tiles_op_mode_get_menu_entry_enabled(entry) ? 1u : 0u);                               \
     }                                                                                                  \
     static void set_modes_##name(tiles_setting_value_t v) { tiles_op_mode_set_menu_entry_enabled(entry, v.u != 0u); }
-MODES_ENTRY(chord, TILES_MENU_CHORD)
+MODES_ENTRY(duet, TILES_MENU_DUET)
 MODES_ENTRY(sequencer, TILES_MENU_SEQUENCER)
 MODES_ENTRY(drums, TILES_MENU_DRUMS)
 MODES_ENTRY(song, TILES_MENU_SONG)
-MODES_ENTRY(harmony, TILES_MENU_HARMONY)
+MODES_ENTRY(prism, TILES_MENU_PRISM)
 MODES_ENTRY(bass, TILES_MENU_BASS)
 MODES_ENTRY(ableton, TILES_MENU_ABLETON)
 MODES_ENTRY(volca, TILES_MENU_VOLCA)
+MODES_ENTRY(bounce, TILES_MENU_BOUNCE)
 
 /* ---- colour scheme and custom pad colours (lighting.h) ---- */
 _Static_assert(TILES_LIGHTING_COLOR_NONE == TILES_COLOR_NONE, "lighting and settings must agree on 'none'");
@@ -248,17 +249,19 @@ static const tiles_setting_def_t TABLE[] = {
                   set_color_accidental),
     /* custom pad colours (advanced; melodic mode only) */
     /* Mode menu: which modes are on it (melodic always is). */
-    TILES_SETTING(0x0800, "modes.chord", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_chord, set_modes_chord),
+    TILES_SETTING(0x0800, "modes.duet", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_duet, set_modes_duet),
     TILES_SETTING(0x0801, "modes.sequencer", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_sequencer,
                   set_modes_sequencer),
     TILES_SETTING(0x0802, "modes.drums", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_drums, set_modes_drums),
     TILES_SETTING(0x0803, "modes.song", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_song, set_modes_song),
-    TILES_SETTING(0x0804, "modes.harmony", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_harmony,
-                  set_modes_harmony),
+    TILES_SETTING(0x0804, "modes.prism", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_prism,
+                  set_modes_prism),
     TILES_SETTING(0x0805, "modes.bass", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_bass, set_modes_bass),
     TILES_SETTING(0x0806, "modes.ableton", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_ableton,
                   set_modes_ableton),
     TILES_SETTING(0x0807, "modes.volca", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_volca, set_modes_volca),
+    TILES_SETTING(0x0808, "modes.bounce", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_bounce,
+                  set_modes_bounce),
     TILES_SETTING(0x0705, "color.custom_pads", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_custom_pads,
                   set_custom_pads),
     PAD_COLOR_LIST(PAD_COLOR_ROW_COMMA)
