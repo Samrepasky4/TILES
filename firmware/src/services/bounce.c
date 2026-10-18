@@ -18,7 +18,7 @@
 #define BOUNCE_CHANNEL TILES_MIDI_CH_BOUNCE
 #define BOUNCE_VISIBLE_LANES 6u
 #define BOUNCE_MAX_OFFSET (TILES_BOUNCE_LANES - BOUNCE_VISIBLE_LANES)
-#define BOUNCE_PULSES_PER_STEP 6u /* a sixteenth at 24 pulses per beat */
+#define BOUNCE_PULSES_PER_STEP 12u /* an eighth at 24 pulses per beat (sixteenths were too busy) */
 /* Lane 1's note before the key and octave: C3. */
 #define BOUNCE_BASE_NOTE 48u
 #define BOUNCE_PI 3.14159265358979323846f
@@ -219,16 +219,26 @@ static float slow_pulse(uint32_t now, float period_ms, float lo, float hi) {
     return lo + (hi - lo) * raw;
 }
 
-/* A lane's colour: a purple that shades from blue-violet on lane 1 to
- * magenta-violet on lane 12 (stopping short of the melodic magenta and the
- * end flash's pink), so the page's colours show where you've scrolled to. */
-#define BOUNCE_LANE_RED_FIRST 0.2f
-#define BOUNCE_LANE_RED_LAST 0.85f
+/* A lane's colour: the hue sweeps from deep blue on lane 1 through violet
+ * and magenta to hot pink on lane 12, about 9 degrees a lane, so the
+ * page's colours show where you've scrolled to. Full saturation. */
+#define BOUNCE_LANE_HUE_FIRST 235.0f
+#define BOUNCE_LANE_HUE_LAST 335.0f
 static void lane_rgb(uint8_t lane, float *r, float *g, float *b) {
     float t = (float)lane / (float)(TILES_BOUNCE_LANES - 1u);
-    *r = BOUNCE_LANE_RED_FIRST + t * (BOUNCE_LANE_RED_LAST - BOUNCE_LANE_RED_FIRST);
+    float h = (BOUNCE_LANE_HUE_FIRST + t * (BOUNCE_LANE_HUE_LAST - BOUNCE_LANE_HUE_FIRST)) / 60.0f;
+    float x = 1.0f - fabsf(fmodf(h, 2.0f) - 1.0f);
+    *r = 0.0f;
     *g = 0.0f;
-    *b = 1.0f;
+    *b = 0.0f;
+    switch ((int)h % 6) { /* the hue's sixth of the circle */
+    case 0: *r = 1.0f; *g = x; break;
+    case 1: *r = x; *g = 1.0f; break;
+    case 2: *g = 1.0f; *b = x; break;
+    case 3: *g = x; *b = 1.0f; break;
+    case 4: *r = x; *b = 1.0f; break;
+    default: *r = 1.0f; *b = x; break;
+    }
 }
 
 void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led, bool clock_running) {

@@ -9808,3 +9808,11 @@ change. Search it by file or feature name.
   - Bouncing notes: lane 1 blue-violet shading to lane 12 magenta-violet
     (bounce.c lane_rgb), so the visible colours tell the scroll position.
     The key-note lanes' pink is gone (it broke the shading).
+- **Bouncing notes: wider colour sweep, half time (0.8.2, 2026-10-17).**
+  Asked: "more dramatic hue shift for bouncing notes; also half the time,
+  it's too subdivided".
+  - Lanes now sweep hue 235 -> 335 degrees (deep blue, violet, magenta, hot
+    pink; about 9 degrees a lane, 45 across the six shown) instead of
+    blue-violet -> magenta-violet.
+  - A step is an eighth, not a sixteenth (BOUNCE_PULSES_PER_STEP 12): heights
+    1-4 land every 1, 2, 4, 6 eighths, and the balls move half as fast.

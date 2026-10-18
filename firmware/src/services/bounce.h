@@ -8,7 +8,7 @@
  *   pads          the column's ball drops from that pad's height (bottom =
  *                 1 .. top = 4) and keeps bouncing; the same height again
  *                 stops it (off). Higher drops land less often and louder:
- *                 heights 1-4 land every 1, 2, 4, 6 sixteenths.
+ *                 heights 1-4 land every 1, 2, 4, 6 eighths.
  *   circle + "-"/"+"  scroll one column: 12 lanes, 6 shown. All pads flash
  *                 pink at either end.
  *   "-" / "+"     stop / start as in the sequencer ("-" twice drops every
@@ -24,8 +24,8 @@
  * sequencer; "-" stops them.
  *
  * Lights: a lane's drop height dim, its ball bright, a landing flashes white;
- * each lane its own purple, blue-violet on lane 1 shading to magenta-violet
- * on lane 12, so scrolling shows where you are; an empty lane shows a faint
+ * each lane its own hue, deep blue on lane 1 through violet and magenta to
+ * hot pink on lane 12, so scrolling shows where you are; an empty lane shows a faint
  * bottom pad. Violet underglow. */
 
 #include "midi_clock.h"
