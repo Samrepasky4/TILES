@@ -214,9 +214,9 @@ Melodic is always there; turning off the mode in use switches to melodic.
 `modes.duet` is the chord + melody mode, `modes.prism` the chord machine,
 `modes.bounce` Bouncing notes. The menu itself is laid out by family, one
 column and one colour family each: melodic / Duet (magenta, pink), sequencers
-(sequencer green, drums lime, Song yellow), Prism (blue), bass (amber),
+(sequencer scarlet, drums orange, Song amber), Prism (blue), bass (green),
 hardware (Ableton teal, Volca cyan), experimental (Bouncing notes violet). A
-mode's underglow is always its menu colour.
+mode's underglow and resting pads are always its menu colour.
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually
 driving anything -- `services/power.h`'s own external-power confirmation

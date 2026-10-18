@@ -28,8 +28,8 @@
  *   circle        tap tempo (no external clock).
  *   diamond       DAW transport, as in the other play modes.
  *
- * Colors: lime is the mode's (underglow, steps); each bank of drums has its
- * own green on the drum pads; the selected drum is blue, and so is the
+ * Colors: orange is the mode's (underglow, steps); each bank of drums has
+ * its own orange-red shade on the drum pads; the selected drum is blue, and so is the
  * playhead on a step that sounds; a drum flashes white as it plays; triangle
  * lights on page 2. The beat keeps playing in the background in every other
  * mode, like the sequencer's lanes. The pattern saves itself after every
@@ -42,10 +42,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The mode's color (menu pad, underglow, armed steps): lime, not used by
- * any other mode or indicator. */
-#define TILES_DRUM_SEQ_COLOR_R 0.5f
-#define TILES_DRUM_SEQ_COLOR_G 1.0f
+/* The mode's color (menu pad, underglow, armed steps): orange, between the
+ * Sequencer's scarlet and Song's amber (op_mode.c's sequencer family). */
+#define TILES_DRUM_SEQ_COLOR_R 1.0f
+#define TILES_DRUM_SEQ_COLOR_G 0.32f
 #define TILES_DRUM_SEQ_COLOR_B 0.0f
 
 /* Volca mode: this same drum mode (same pattern, gestures and saving) for a
@@ -53,7 +53,7 @@
  * k (the k-th from C1: the first bank's eight, then the next bank's) plays
  * C (TILES_VOLCA_NOTE) on MIDI channel k, 1-16, instead of its Drum Rack
  * note on channel 10. Drums past channel 16 send nothing. Cyan where drum
- * mode is lime. op_mode.c's menu turns it on and off. */
+ * mode is orange. op_mode.c's menu turns it on and off. */
 #define TILES_VOLCA_NOTE 60u /* C4: the sample at its own pitch */
 #define TILES_VOLCA_COLOR_R 0.0f /* cyan: the hardware family, with Ableton's teal */
 #define TILES_VOLCA_COLOR_G 0.75f

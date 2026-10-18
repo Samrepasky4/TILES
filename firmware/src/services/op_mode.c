@@ -62,14 +62,15 @@ static void mode_underglow(void); /* the active mode's colour on the underglow *
  * the first of the family on row 1 (nearest the buttons), and each family
  * has its own colour family, so a column reads as one kind of mode:
  *   column 1  magenta    Melodic (the default), Duet (chords + melody)
- *   column 2  greens     Sequencer, Drums (lime), Song (yellow)
+ *   column 2  reds       Sequencer (scarlet), Drums (orange), Song (amber)
  *   column 3  blue       Prism (harmony.h)
- *   column 4  amber      Bass guitar
+ *   column 4  green      Bass guitar
  *   column 5  teal/cyan  Ableton, Volca (gear-specific modes, CV/gate ones to
  *                        come, go here)
  *   column 6  violet     Bouncing notes (experimental modes)
- * A mode's underglow is always its menu colour. A new mode is a row in
- * MENU_SLOTS. */
+ * A mode's underglow is always its menu colour, and so are its resting
+ * pads (the sequencer's steps, the drum pads, Song's tracks, the bass
+ * frets). A new mode is a row in MENU_SLOTS. */
 /* play_state's saved mode numbers past the drum mode: Volca (drum mode with
  * its flag) and Harmony. Fixed: they're in flash. */
 #define OP_PLAY_STATE_VOLCA 7u
@@ -78,24 +79,24 @@ static void mode_underglow(void); /* the active mode's colour on the underglow *
 #define OP_PLAY_STATE_BOUNCE 10u
 
 /* Mode colors, by family (see the menu above): melodic = Sentia magenta,
- * Duet = pink; sequencer = green (drums lime, drum_seq.h; Song yellow, like
- * its capture underglow, its track pads a random hue in a yellow-green-to-
- * orange band); bass guitar = amber (its fretboard); Ableton = teal. Red is
- * left to the crash indicator. */
+ * Duet = pink; the sequencers red to amber (Sequencer scarlet, its steps
+ * red; drums orange, drum_seq.h; Song amber, its track pads a random hue in
+ * a red-orange-to-amber band); bass guitar = green (its fretboard); Ableton
+ * = teal. The crash indicator's red is a pulse, the Sequencer's steady. */
 #define OP_MENU_MELODIC_R 1.0f
 #define OP_MENU_MELODIC_G 0.0f
 #define OP_MENU_MELODIC_B 1.0f
 #define OP_MENU_CHORD_R 1.0f
 #define OP_MENU_CHORD_G 0.3f
 #define OP_MENU_CHORD_B 0.55f
-#define OP_MENU_SEQUENCER_R 0.0f
-#define OP_MENU_SEQUENCER_G 1.0f
-#define OP_MENU_SEQUENCER_B 0.15f
-#define OP_MENU_GUITAR_R 1.0f
-#define OP_MENU_GUITAR_G 0.45f
+#define OP_MENU_SEQUENCER_R 1.0f
+#define OP_MENU_SEQUENCER_G 0.06f
+#define OP_MENU_SEQUENCER_B 0.0f
+#define OP_MENU_GUITAR_R 0.15f
+#define OP_MENU_GUITAR_G 1.0f
 #define OP_MENU_GUITAR_B 0.0f
 #define OP_MENU_SONG_R 1.0f
-#define OP_MENU_SONG_G 0.9f
+#define OP_MENU_SONG_G 0.62f
 #define OP_MENU_SONG_B 0.0f
 #define OP_MENU_SCENE_LAUNCH_R 0.0f
 #define OP_MENU_SCENE_LAUNCH_G 0.75f
@@ -246,6 +247,11 @@ static uint32_t s_beat_flash_start_ms;
 #define OP_SEQ_VELOCITY 100u
 
 #define OP_SEQ_DIM_RED_LEVEL 0.3f
+/* An empty step inside the loop: a faint orange, so the loop's length and
+ * the mode's colour show on the pads; past the loop, off. */
+#define OP_SEQ_EMPTY_STEP_R 0.1f
+#define OP_SEQ_EMPTY_STEP_G 0.03f
+#define OP_SEQ_EMPTY_STEP_B 0.0f
 /* Playhead on an UNARMED step: dim white, so the current step always
  * shows. */
 #define OP_SEQ_CURSOR_LEVEL 0.15f
@@ -891,7 +897,7 @@ static void render_sequencer(float beat_flash_level, bool transport_running) {
                 /* Playhead on an unarmed step (or paused / waiting to start): dim white. */
                 tiles_lighting_set_standby_pad_rgb(pad, OP_SEQ_CURSOR_LEVEL, OP_SEQ_CURSOR_LEVEL, OP_SEQ_CURSOR_LEVEL);
             } else if (!pat->step_armed[step]) {
-                tiles_lighting_set_standby_pad_rgb(pad, 0.0f, 0.0f, 0.0f);
+                tiles_lighting_set_standby_pad_rgb(pad, OP_SEQ_EMPTY_STEP_R, OP_SEQ_EMPTY_STEP_G, OP_SEQ_EMPTY_STEP_B);
             } else {
                 /* Armed steps are dim red, tinted toward amber if probability may skip
                  * them (only while probability_enabled) and toward blue if they ratchet. */
@@ -1636,20 +1642,22 @@ static void pattern_store_load_all(void) {
  * view (s_seq_edit_lane), so one gesture picks both.
  * Cell colors: see render_pattern_bank(). */
 #define OP_PATTERN_BANK_FLASH_MS 300u
-/* Four distinct lane colors, avoiding red (selection) and magenta
- * (capture playhead and length flash). Unmeasured. */
+/* Four lane colors in the sequencer's warm family (the row tells the lane
+ * too): red-orange, orange, amber, rose. Steady, so the blinking red
+ * selection still stands out; no magenta (capture playhead and length
+ * flash). Unmeasured. */
 #define OP_SEQ_LANE_0_R OP_SCALE_AVAILABLE_LEVEL
-#define OP_SEQ_LANE_0_G (OP_SCALE_AVAILABLE_LEVEL * 0.5f)
+#define OP_SEQ_LANE_0_G (OP_SCALE_AVAILABLE_LEVEL * 0.12f)
 #define OP_SEQ_LANE_0_B 0.0f
-#define OP_SEQ_LANE_1_R 0.0f
-#define OP_SEQ_LANE_1_G OP_SCALE_AVAILABLE_LEVEL
+#define OP_SEQ_LANE_1_R OP_SCALE_AVAILABLE_LEVEL
+#define OP_SEQ_LANE_1_G (OP_SCALE_AVAILABLE_LEVEL * 0.35f)
 #define OP_SEQ_LANE_1_B 0.0f
-#define OP_SEQ_LANE_2_R 0.0f
-#define OP_SEQ_LANE_2_G (OP_SCALE_AVAILABLE_LEVEL * 0.6f)
-#define OP_SEQ_LANE_2_B OP_SCALE_AVAILABLE_LEVEL
-#define OP_SEQ_LANE_3_R (OP_SCALE_AVAILABLE_LEVEL * 0.7f)
+#define OP_SEQ_LANE_2_R OP_SCALE_AVAILABLE_LEVEL
+#define OP_SEQ_LANE_2_G (OP_SCALE_AVAILABLE_LEVEL * 0.62f)
+#define OP_SEQ_LANE_2_B 0.0f
+#define OP_SEQ_LANE_3_R OP_SCALE_AVAILABLE_LEVEL
 #define OP_SEQ_LANE_3_G 0.0f
-#define OP_SEQ_LANE_3_B OP_SCALE_AVAILABLE_LEVEL
+#define OP_SEQ_LANE_3_B (OP_SCALE_AVAILABLE_LEVEL * 0.3f)
 
 static bool s_pattern_bank_visible;
 static bool s_pattern_bank_prev_pad_touched[TILES_NUM_PADS];
@@ -3434,8 +3442,8 @@ bool tiles_op_mode_has_menu_open(void) {
  *     with the pool full is refused with a red flash.
  *   - Recording is Song capture (circle + diamond, from melodic, chord,
  *     bass guitar or Song mode itself) into the next empty slot.
- *   - Color: yellow theme; each pattern gets its own hue in a
- *     yellow-green-to-orange band (hue_byte, persisted). */
+ *   - Color: amber theme; each pattern gets its own hue in a
+ *     red-orange-to-amber band (hue_byte, persisted). */
 
 /* Step editor layout: columns 1-4 x 4 rows = the page's 16 steps
  * (row-major); columns 5-6 = the 8 page pads, row 1 = pages 1-2 ... row 4
@@ -3580,10 +3588,11 @@ static void song_end_current_note(uint8_t slot) {
     s_song_sounding_note_count[slot] = 0u;
 }
 
-/* hue_byte -> RGB across 30 deg (orange) .. 90 deg (yellow-green), via a
- * real HSV conversion so the band can change freely. */
+/* hue_byte -> RGB across 10 deg (red-orange) .. 50 deg (amber), the
+ * sequencers' warm family, via a real HSV conversion so the band can change
+ * freely. */
 static void song_hue_to_rgb(uint8_t hue_byte, float sat, float val, float *out_r, float *out_g, float *out_b) {
-    float hue = 30.0f + ((float)hue_byte / 255.0f) * 60.0f;
+    float hue = 10.0f + ((float)hue_byte / 255.0f) * 40.0f;
     float c = val * sat;
     float x = c * (1.0f - fabsf(fmodf(hue / 60.0f, 2.0f) - 1.0f));
     float m = val - c;
@@ -3870,7 +3879,7 @@ static void render_song_overview(uint32_t now_ms) {
     render_song_underglow();
 }
 
-/* Song mode's underglow: steady yellow. (While capturing, lighting.c's
+/* Song mode's underglow: steady amber. (While capturing, lighting.c's
  * amber capture pulse takes over through its priority chain, so this
  * isn't called then.) Also drawn during the step editor's pitch pick,
  * where the pads show the live melodic surface. */

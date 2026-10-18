@@ -24,8 +24,9 @@
  * sequencer; "-" stops them.
  *
  * Lights: a lane's drop height dim, its ball bright, a landing flashes white;
- * lanes on the key note in the scheme's root colour (pink), the rest violet;
- * an empty lane shows a faint bottom pad. Violet underglow. */
+ * each lane its own purple, blue-violet on lane 1 shading to magenta-violet
+ * on lane 12, so scrolling shows where you are; an empty lane shows a faint
+ * bottom pad. Violet underglow. */
 
 #include "midi_clock.h"
 

@@ -476,8 +476,9 @@ static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
     }
 
     /* Melodic echo: incoming notes (from TILES DISPLAY; see
-     * daw-integration/README.md) light green, a color nothing else here uses.
-     * After the live-touch check, before the idle looks. */
+     * daw-integration/README.md) light a pale green, flashing in from white
+     * (the bass frets' green is deeper and never flashes). After the
+     * live-touch check, before the idle looks. */
     uint8_t echo_note = tiles_note_map_get_note(logical_pad);
     bool echo_primary = tiles_op_mode_incoming_note_is_sounding(0, echo_note);
     bool echo_secondary = tiles_op_mode_incoming_note_is_sounding(1, echo_note);
@@ -504,16 +505,17 @@ static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
         return (tiles_rgb01_t){mix, 1.0f, mix};
     }
 
-    /* Bass guitar mode: neck-style coloring. Unmarked frets are amber at the
-     * idle level; inlay frets brighter; octave (double-dot) frets brightest. */
+    /* Bass guitar mode: neck-style coloring in the mode's green (op_mode.c's
+     * menu). Unmarked frets at the idle level; inlay frets brighter; octave
+     * (double-dot) frets brightest. */
     if (tiles_note_map_is_guitar_mode_active()) {
         bool is_octave = false;
         if (tiles_note_map_is_guitar_fret_marker_pad(logical_pad, &is_octave)) {
             float level = is_octave ? 1.0f : 0.75f;
-            return (tiles_rgb01_t){level, level * 0.5f, 0.0f};
+            return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
         }
         float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT);
-        return (tiles_rgb01_t){level, level * 0.5f, 0.0f};
+        return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
     }
 
     /* Chord mode's chord strip: one solid blue for the whole region. The

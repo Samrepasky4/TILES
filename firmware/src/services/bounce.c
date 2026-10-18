@@ -219,26 +219,16 @@ static float slow_pulse(uint32_t now, float period_ms, float lo, float hi) {
     return lo + (hi - lo) * raw;
 }
 
-/* A lane's colour: the scheme's root colour on the key note, else violet. */
+/* A lane's colour: a purple that shades from blue-violet on lane 1 to
+ * magenta-violet on lane 12 (stopping short of the melodic magenta and the
+ * end flash's pink), so the page's colours show where you've scrolled to. */
+#define BOUNCE_LANE_RED_FIRST 0.2f
+#define BOUNCE_LANE_RED_LAST 0.85f
 static void lane_rgb(uint8_t lane, float *r, float *g, float *b) {
-    uint8_t note = lane_note(lane);
-    uint32_t root = tiles_lighting_get_scheme_color(TILES_SCHEME_ROOT);
-    if (note != 0u && note % 12u == (uint8_t)tiles_note_map_get_key_offset() % 12u &&
-        root != TILES_LIGHTING_COLOR_NONE) {
-        *r = (float)((root >> 16) & 0xFFu) / 255.0f;
-        *g = (float)((root >> 8) & 0xFFu) / 255.0f;
-        *b = (float)(root & 0xFFu) / 255.0f;
-        float peak = fmaxf(*r, fmaxf(*g, *b));
-        if (peak > 0.0f) { /* full strength: the scheme's levels are for resting pads */
-            *r /= peak;
-            *g /= peak;
-            *b /= peak;
-        }
-        return;
-    }
-    *r = TILES_BOUNCE_COLOR_R;
-    *g = TILES_BOUNCE_COLOR_G;
-    *b = TILES_BOUNCE_COLOR_B;
+    float t = (float)lane / (float)(TILES_BOUNCE_LANES - 1u);
+    *r = BOUNCE_LANE_RED_FIRST + t * (BOUNCE_LANE_RED_LAST - BOUNCE_LANE_RED_FIRST);
+    *g = 0.0f;
+    *b = 1.0f;
 }
 
 void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led, bool clock_running) {

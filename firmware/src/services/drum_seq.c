@@ -47,7 +47,7 @@
 #define DRUM_SAVE_QUIET_MS 2000u
 #define DRUM_SAVE_RETRY_MS 30000u
 
-/* Levels; steps in the mode's lime, drum pads in their bank's green. */
+/* Levels; steps in the mode's orange, drum pads in their bank's shade. */
 #define DRUM_STEP_ARMED_LEVEL 0.35f
 #define DRUM_PLAYHEAD_LEVEL 0.15f /* white, on an empty step */
 #define DRUM_PAD_USED_LEVEL 0.4f
@@ -145,7 +145,7 @@ static void drum_midi_off(uint8_t note) {
     }
 }
 
-/* The mode's color: lime, or purple in Volca mode. */
+/* The mode's color: orange, or cyan in Volca mode. */
 static void mode_color(float *r, float *g, float *b) {
     *r = s_volca ? TILES_VOLCA_COLOR_R : TILES_DRUM_SEQ_COLOR_R;
     *g = s_volca ? TILES_VOLCA_COLOR_G : TILES_DRUM_SEQ_COLOR_G;
@@ -559,15 +559,15 @@ void tiles_drum_seq_handle_input(uint32_t now) {
 /* ---- rendering ---- */
 
 /* Each bank of 8 drums has its own shade of the mode's color on the drum
- * pads, so a new set reads as new. Drum mode: lime (the first bank), a
- * darker green, a cooler green, olive. Volca mode: cyan, a darker cyan, a
- * paler one, a bluer one. Then around again. */
-static void bank_green(float level, float *r, float *g, float *b) {
-    static const float GREENS[4][3] = {
+ * pads, so a new set reads as new. Drum mode: orange (the first bank), a
+ * redder one, amber, rose. Volca mode: cyan, a darker cyan, a paler one, a
+ * bluer one. Then around again. */
+static void bank_shade(float level, float *r, float *g, float *b) {
+    static const float WARMS[4][3] = {
         {TILES_DRUM_SEQ_COLOR_R, TILES_DRUM_SEQ_COLOR_G, TILES_DRUM_SEQ_COLOR_B},
-        {0.0f, 0.5f, 0.05f},
-        {0.0f, 1.0f, 0.45f},
-        {0.25f, 0.45f, 0.0f},
+        {1.0f, 0.1f, 0.0f},
+        {1.0f, 0.6f, 0.0f},
+        {1.0f, 0.05f, 0.25f},
     };
     static const float CYANS[4][3] = {
         {TILES_VOLCA_COLOR_R, TILES_VOLCA_COLOR_G, TILES_VOLCA_COLOR_B},
@@ -575,7 +575,7 @@ static void bank_green(float level, float *r, float *g, float *b) {
         {0.35f, 0.9f, 1.0f},
         {0.0f, 0.45f, 1.0f},
     };
-    const float (*shades)[3] = s_volca ? CYANS : GREENS;
+    const float (*shades)[3] = s_volca ? CYANS : WARMS;
     uint8_t i = (uint8_t)((((int)s_bank % 4) + 4) % 4);
     *r = shades[i][0] * level;
     *g = shades[i][1] * level;
@@ -672,7 +672,7 @@ void tiles_drum_seq_render(uint32_t now, float beat_flash, float diamond_led, bo
             r = DRUM_BLUE_R; g = DRUM_BLUE_G; b = DRUM_BLUE_B;
         } else {
             bool used = tiles_drum_pattern_note_has_steps(&s_pattern, tiles_drum_note(s_bank, v));
-            bank_green(used ? DRUM_PAD_USED_LEVEL : DRUM_PAD_EMPTY_LEVEL, &r, &g, &b);
+            bank_shade(used ? DRUM_PAD_USED_LEVEL : DRUM_PAD_EMPTY_LEVEL, &r, &g, &b);
         }
         tiles_lighting_set_standby_pad_rgb(pad, r, g, b);
     }

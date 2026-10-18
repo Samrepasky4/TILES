@@ -9786,3 +9786,25 @@ change. Search it by file or feature name.
     circle taps tempo; square is only the Feel menu here (no bend toggle,
     tiles_op_mode_square_toggles_bend()). Keeps bouncing in other modes.
     Column 6, violet; modes.bounce (0x0808); play_state 10.
+- **Sequencers in reds, Bass green, Bouncing notes shading (0.8.1,
+  2026-10-17).** Asked: "sequencer modes should be in reds, also the default
+  pads should be in those hues of red and orange, not just the underglow and
+  selector, for sequencer based instruments; also make bouncing notes shift
+  shades of purple from left to right columns so we get a sense of
+  positioning on scrolling".
+  - Column 2 is now the warm family: Sequencer scarlet (1, 0.06, 0), drums
+    orange (1, 0.32, 0), Song amber (1, 0.62, 0). Inside the modes too:
+    the sequencer's empty steps inside the loop glow a faint orange (they
+    were dark; past the loop stays dark, so the length shows), armed steps
+    stay red; pattern-bank lanes red-orange / orange / amber / rose (were
+    amber / green / blue / purple); drum banks orange / red / amber / rose
+    (were lime / greens / olive); Song's track hues 10-50 degrees
+    (red-orange to amber, were 30-90). Blue playheads and selections, white
+    and red flashes unchanged. The crash indicator's red still pulses; the
+    Sequencer's is steady.
+  - Bass guitar moved from amber (now Song's) to green, frets included
+    (lighting.c). The DAW echo's pale green flashes in from white, the
+    frets' deeper green doesn't.
+  - Bouncing notes: lane 1 blue-violet shading to lane 12 magenta-violet
+    (bounce.c lane_rgb), so the visible colours tell the scroll position.
+    The key-note lanes' pink is gone (it broke the shading).

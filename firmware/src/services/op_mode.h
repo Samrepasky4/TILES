@@ -6,18 +6,18 @@
  * ---- Modes (triangle opens the mode menu) ----------------------------------
  * One column per family, the first of each on row 1 (nearest the buttons),
  * more of the family below it, each family its own colours, each mode's
- * underglow its menu colour (MENU_SLOTS in op_mode.c):
+ * underglow and resting pads its menu colour (MENU_SLOTS in op_mode.c):
  *   column 1  Melodic     (magenta)  default. Notes via expression.c.
  *             Duet        (pink)     chord mode: columns 1-2 play chords
  *                                    (op_mode.c), columns 3-6 a melody grid.
- *   column 2  Sequencer   (green)    4 lanes x 24 steps (below).
- *             Drums       (lime)     16/32-step drum sequencer on MIDI
+ *   column 2  Sequencer   (scarlet)  4 lanes x 24 steps (below).
+ *             Drums       (orange)   16/32-step drum sequencer on MIDI
  *                                    channel 10, Drum Rack order; circle +
  *                                    triangle flips its page (drum_seq.h).
- *             Song        (yellow)   BETA, untested on hardware: a 24-slot
+ *             Song        (amber)    BETA, untested on hardware: a 24-slot
  *                                    looper, 128 steps per pattern.
  *   column 3  Prism       (blue)     chord machine (harmony.h).
- *   column 4  Bass guitar (amber)    rows = strings, columns = frets;
+ *   column 4  Bass guitar (green)    rows = strings, columns = frets;
  *                                    "-"/"+" shift the fret window.
  *   column 5  Ableton     (teal)     Scene Launch: clip grid for Live's
  *                                    Session View (daw-integration/).
@@ -119,7 +119,7 @@ bool tiles_op_mode_has_menu_open(void);
 
 
 /* True while a Song capture is recording. services/lighting.c shows the
- * amber recording underglow. */
+ * yellow recording pulse on the underglow. */
 bool tiles_op_mode_song_capture_is_active(void);
 
 /* True if `note` is sounding on the slot a Song capture is recording, so
