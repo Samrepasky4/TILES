@@ -183,6 +183,14 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0704 | `color.accidental` | color | `RRGGBB` or `none` | `000000` (dark) | yes |
 | 0x0705 | `color.custom_pads` | bool | | `0` | yes |
 | 0x0710 - 0x0727 | `color.pad.01` ... `color.pad.24` | color | `RRGGBB` or `none` | `none` | yes |
+| 0x0800 | `modes.chord` | bool | | `1` | yes |
+| 0x0801 | `modes.sequencer` | bool | | `1` | yes |
+| 0x0802 | `modes.drums` | bool | | `1` | yes |
+| 0x0803 | `modes.song` | bool | | `1` | yes |
+| 0x0804 | `modes.harmony` | bool | | `1` | yes |
+| 0x0805 | `modes.bass` | bool | | `1` | yes |
+| 0x0806 | `modes.ableton` | bool | | `1` | yes |
+| 0x0807 | `modes.volca` | bool | | `1` | yes |
 
 Ids `0x0401`-`0x0404` (`look.natural_pad_percent`, `look.root_pad_percent`,
 `look.fifth_pad_percent`, `look.fifth_red_tint_percent`) were retired in
@@ -198,6 +206,14 @@ tints partway toward it instead), brightness unchanged, with MPE on only; `look.
 is how much a bending pad's brightness falls at full bend (a smooth swell).
 `look.led_intensity_percent` scales the pads, underglow and button LEDs below the ceiling
 (the Feel menu's row 4 sets 0, 4, 16, 36, 64 or 100; 0 = off).
+
+`modes.*` add or remove modes from the mode menu (triangle), for the companion
+app: `0` takes the pad off the menu (dark, can't be picked), `1` puts it back.
+Melodic is always there; turning off the mode in use switches to melodic. The
+keys stay the same whatever a mode is called in the app. The menu itself is
+laid out by family, one column each: melodic / chord + melody, sequencers
+(sequencer, drums, Song), harmonic (Harmony), bass, hardware (Ableton, Volca),
+experimental.
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually
 driving anything -- `services/power.h`'s own external-power confirmation

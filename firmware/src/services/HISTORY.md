@@ -9749,3 +9749,15 @@ change. Search it by file or feature name.
     HOLD style: TILES holds a released chord until the pedal comes up.
   Harmony's colour is light blue (0.3, 0.6, 1.0), not teal: Ableton's menu
   pad was already teal (0, 0.5, 0.5).
+- **Mode menu by family; the app can add or remove modes (0.7.0,
+  2026-10-17).** Asked: "align modes based on functionality": column 1
+  melodic (default) with chord + melody below it, column 2 sequencer modes,
+  column 3 harmonic modes, then bass modes, then hardware / gear modes
+  starting with Ableton (Volca, CV/gate gear to come), then experimental; and
+  "Sam should be able to make the control software delete or add layouts".
+  The menu is now a table (MENU_SLOTS): melodic, chord | sequencer, drums,
+  Song | Harmony | bass | Ableton, Volca | (experimental, empty). Song sits
+  with the sequencers (it sequences; still beta). New settings modes.chord ..
+  modes.volca (0x0800-0x0807, default on): off = dark, unpickable, and the
+  mode in use falls back to melodic; melodic can't be removed. Mode names in
+  the guide are pending marketable names (not changed until approved).

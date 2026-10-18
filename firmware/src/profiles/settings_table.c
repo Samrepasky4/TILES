@@ -8,6 +8,7 @@
 #include "din_midi.h"
 #include "expression.h"
 #include "lighting.h"
+#include "op_mode.h"
 #include "pedal.h"
 #include "storage_flash.h"
 #include "touch.h"
@@ -103,6 +104,21 @@ LOOK_ENTRY(pressure_hue, TILES_LOOK_PRESSURE_HUE_DEGREES)
 LOOK_ENTRY(bend_dim, TILES_LOOK_BEND_DIM_PERCENT)
 LOOK_ENTRY(led_intensity, TILES_LOOK_LED_INTENSITY_PERCENT)
 
+/* ---- mode menu entries (op_mode.h) ---- */
+#define MODES_ENTRY(name, entry)                                                                       \
+    static tiles_setting_value_t get_modes_##name(void) {                                              \
+        return U(tiles_op_mode_get_menu_entry_enabled(entry) ? 1u : 0u);                               \
+    }                                                                                                  \
+    static void set_modes_##name(tiles_setting_value_t v) { tiles_op_mode_set_menu_entry_enabled(entry, v.u != 0u); }
+MODES_ENTRY(chord, TILES_MENU_CHORD)
+MODES_ENTRY(sequencer, TILES_MENU_SEQUENCER)
+MODES_ENTRY(drums, TILES_MENU_DRUMS)
+MODES_ENTRY(song, TILES_MENU_SONG)
+MODES_ENTRY(harmony, TILES_MENU_HARMONY)
+MODES_ENTRY(bass, TILES_MENU_BASS)
+MODES_ENTRY(ableton, TILES_MENU_ABLETON)
+MODES_ENTRY(volca, TILES_MENU_VOLCA)
+
 /* ---- colour scheme and custom pad colours (lighting.h) ---- */
 _Static_assert(TILES_LIGHTING_COLOR_NONE == TILES_COLOR_NONE, "lighting and settings must agree on 'none'");
 #define SCHEME_ENTRY(name, role)                                                                    \
@@ -144,7 +160,7 @@ static const char *const DIN_TYPE_NAMES[] = {"a", "b"};
  *  - `id` is permanent (it is what is written to flash and what a binary protocol will use): never
  *    reuse or renumber one -- retire it by leaving a gap. Ids are grouped by hundreds:
  *    0x01xx pedal, 0x02xx expression, 0x03xx CV/gate, 0x04xx LED look, 0x05xx MIDI, 0x06xx features,
- *    0x07xx colours.
+ *    0x07xx colours, 0x08xx the mode menu's entries.
  *  - `key` is the human/script name.
  *  - The range is what the setting will accept -- wide enough for any value that is actually useful,
  *    narrow enough to refuse something nonsensical (or unsafe for the CV output).
@@ -231,6 +247,18 @@ static const tiles_setting_def_t TABLE[] = {
     TILES_SETTING(0x0704, "color.accidental", TILES_SETTING_COLOR, {.u = 0}, {.u = 0}, NULL, get_color_accidental,
                   set_color_accidental),
     /* custom pad colours (advanced; melodic mode only) */
+    /* Mode menu: which modes are on it (melodic always is). */
+    TILES_SETTING(0x0800, "modes.chord", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_chord, set_modes_chord),
+    TILES_SETTING(0x0801, "modes.sequencer", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_sequencer,
+                  set_modes_sequencer),
+    TILES_SETTING(0x0802, "modes.drums", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_drums, set_modes_drums),
+    TILES_SETTING(0x0803, "modes.song", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_song, set_modes_song),
+    TILES_SETTING(0x0804, "modes.harmony", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_harmony,
+                  set_modes_harmony),
+    TILES_SETTING(0x0805, "modes.bass", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_bass, set_modes_bass),
+    TILES_SETTING(0x0806, "modes.ableton", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_ableton,
+                  set_modes_ableton),
+    TILES_SETTING(0x0807, "modes.volca", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_volca, set_modes_volca),
     TILES_SETTING(0x0705, "color.custom_pads", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_custom_pads,
                   set_custom_pads),
     PAD_COLOR_LIST(PAD_COLOR_ROW_COMMA)

@@ -54,24 +54,16 @@ typedef enum {
     OP_MODE_HARMONY,
 } tiles_op_mode_t;
 
-/* Mode menu: one pad per mode on row 1 (nearest the buttons), each its own
- * color, like the game menu. Column order: melodic, sequencer, drums,
- * chord, Song, Ableton; bass guitar is the first pad of row 2 (pad 7), Volca
- * (drum mode for a Volca Sample, drum_seq.h) the second (pad 8), Harmony
- * (harmony.h) the third (pad 9). */
-#define OP_MENU_ROW 1u
-#define OP_MENU_COL_MELODIC 1u
-#define OP_MENU_COL_SEQUENCER 2u
-#define OP_MENU_COL_DRUM 3u
-#define OP_MENU_COL_CHORD 4u
-#define OP_MENU_COL_SONG 5u
-#define OP_MENU_COL_SCENE_LAUNCH 6u
-#define OP_MENU_GUITAR_ROW 2u
-#define OP_MENU_GUITAR_COL 1u
-#define OP_MENU_VOLCA_ROW 2u
-#define OP_MENU_VOLCA_COL 2u
-#define OP_MENU_HARMONY_ROW 2u
-#define OP_MENU_HARMONY_COL 3u
+/* The mode menu (MENU_SLOTS below) is laid out by family, one column each,
+ * the first of the family on row 1 (nearest the buttons):
+ *   column 1  melodic (the default), chord + melody
+ *   column 2  sequencers: sequencer, drums, Song
+ *   column 3  harmonic: Harmony
+ *   column 4  bass: bass guitar
+ *   column 5  hardware: Ableton, Volca (gear-specific modes, CV/gate ones
+ *             to come, go here)
+ *   column 6  experimental (none yet)
+ * A new mode is a row in MENU_SLOTS. */
 /* play_state's saved mode numbers past the drum mode: Volca (drum mode with
  * its flag) and Harmony. Fixed: they're in flash. */
 #define OP_PLAY_STATE_VOLCA 7u
@@ -1236,124 +1228,79 @@ static void menu_exit(void) {
     tiles_buttons_set_override_led(TILES_TRIANGLE_BUTTON_ID, 0.0f);
 }
 
-/* Only available modes light up and respond (all six are available now). */
-static bool col_is_available(uint8_t col) {
-    switch (col) {
-    case OP_MENU_COL_MELODIC:
-    case OP_MENU_COL_SEQUENCER:
-    case OP_MENU_COL_DRUM:
-    case OP_MENU_COL_CHORD:
-    case OP_MENU_COL_SONG:
-    case OP_MENU_COL_SCENE_LAUNCH:
-        return true;
-    default: /* outside the menu */
-        return false;
-    }
+typedef struct {
+    uint8_t row, col;
+    tiles_op_mode_t mode;
+    bool volca;   /* drum mode's Volca routing (drum_seq.h) */
+    int8_t entry; /* tiles_op_mode_menu_entry_t, or -1: always on (melodic) */
+    float r, g, b;
+} menu_slot_t;
+
+static const menu_slot_t MENU_SLOTS[] = {
+    {1u, 1u, OP_MODE_MELODIC, false, -1, OP_MENU_MELODIC_R, OP_MENU_MELODIC_G, OP_MENU_MELODIC_B},
+    {2u, 1u, OP_MODE_CHORD, false, TILES_MENU_CHORD, OP_MENU_CHORD_R, OP_MENU_CHORD_G, OP_MENU_CHORD_B},
+    {1u, 2u, OP_MODE_SEQUENCER, false, TILES_MENU_SEQUENCER, OP_MENU_SEQUENCER_R, OP_MENU_SEQUENCER_G,
+     OP_MENU_SEQUENCER_B},
+    {2u, 2u, OP_MODE_DRUM, false, TILES_MENU_DRUMS, TILES_DRUM_SEQ_COLOR_R, TILES_DRUM_SEQ_COLOR_G,
+     TILES_DRUM_SEQ_COLOR_B},
+    {3u, 2u, OP_MODE_SONG, false, TILES_MENU_SONG, OP_MENU_SONG_R, OP_MENU_SONG_G, OP_MENU_SONG_B},
+    {1u, 3u, OP_MODE_HARMONY, false, TILES_MENU_HARMONY, TILES_HARMONY_COLOR_R, TILES_HARMONY_COLOR_G,
+     TILES_HARMONY_COLOR_B},
+    {1u, 4u, OP_MODE_GUITAR, false, TILES_MENU_BASS, OP_MENU_GUITAR_R, OP_MENU_GUITAR_G, OP_MENU_GUITAR_B},
+    {1u, 5u, OP_MODE_SCENE_LAUNCH, false, TILES_MENU_ABLETON, OP_MENU_SCENE_LAUNCH_R, OP_MENU_SCENE_LAUNCH_G,
+     OP_MENU_SCENE_LAUNCH_B},
+    {2u, 5u, OP_MODE_DRUM, true, TILES_MENU_VOLCA, TILES_VOLCA_COLOR_R, TILES_VOLCA_COLOR_G, TILES_VOLCA_COLOR_B},
+};
+#define MENU_SLOT_COUNT (sizeof(MENU_SLOTS) / sizeof(MENU_SLOTS[0]))
+
+/* Which entries are on the menu (settings modes.*, the companion app's
+ * toggles). All on at boot; the saved settings follow. */
+static bool s_menu_entry_enabled[TILES_MENU_ENTRY_COUNT];
+
+static bool slot_enabled(const menu_slot_t *slot) {
+    return slot->entry < 0 || s_menu_entry_enabled[slot->entry];
 }
 
-static void render_menu_col_color(uint8_t col, float *r, float *g, float *b) {
-    switch (col) {
-    case OP_MENU_COL_MELODIC:
-        *r = OP_MENU_MELODIC_R;
-        *g = OP_MENU_MELODIC_G;
-        *b = OP_MENU_MELODIC_B;
-        break;
-    case OP_MENU_COL_SEQUENCER:
-        *r = OP_MENU_SEQUENCER_R;
-        *g = OP_MENU_SEQUENCER_G;
-        *b = OP_MENU_SEQUENCER_B;
-        break;
-    case OP_MENU_COL_CHORD:
-        *r = OP_MENU_CHORD_R;
-        *g = OP_MENU_CHORD_G;
-        *b = OP_MENU_CHORD_B;
-        break;
-    case OP_MENU_COL_SONG:
-        *r = OP_MENU_SONG_R;
-        *g = OP_MENU_SONG_G;
-        *b = OP_MENU_SONG_B;
-        break;
-    case OP_MENU_COL_SCENE_LAUNCH:
-        *r = OP_MENU_SCENE_LAUNCH_R;
-        *g = OP_MENU_SCENE_LAUNCH_G;
-        *b = OP_MENU_SCENE_LAUNCH_B;
-        break;
-    default: /* only OP_MENU_COL_DRUM is left (only called for available columns) */
-        *r = TILES_DRUM_SEQ_COLOR_R;
-        *g = TILES_DRUM_SEQ_COLOR_G;
-        *b = TILES_DRUM_SEQ_COLOR_B;
-        break;
+static const menu_slot_t *slot_at(uint8_t row, uint8_t col) {
+    for (size_t i = 0; i < MENU_SLOT_COUNT; i++) {
+        if (MENU_SLOTS[i].row == row && MENU_SLOTS[i].col == col) {
+            return &MENU_SLOTS[i];
+        }
     }
+    return NULL;
 }
 
-/* Column -> "is this the current mode", for the pulsing slot. Every case
- * explicit (called for every column, including non-menu ones). Also true
- * for a pending pick, so the chosen slot pulses while the finger is still
- * down. */
-static bool col_is_current_mode(uint8_t col) {
+/* The slot of a mode (with drum mode's Volca flag). */
+static const menu_slot_t *slot_for(tiles_op_mode_t mode, bool volca) {
+    for (size_t i = 0; i < MENU_SLOT_COUNT; i++) {
+        if (MENU_SLOTS[i].mode == mode && (mode != OP_MODE_DRUM || MENU_SLOTS[i].volca == volca)) {
+            return &MENU_SLOTS[i];
+        }
+    }
+    return NULL;
+}
+
+/* The slot pulsing as current: the pending pick, else the active mode. */
+static bool slot_is_current(const menu_slot_t *slot) {
     tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
-    switch (col) {
-    case OP_MENU_COL_MELODIC:
-        return mode == OP_MODE_MELODIC;
-    case OP_MENU_COL_SEQUENCER:
-        return mode == OP_MODE_SEQUENCER;
-    case OP_MENU_COL_DRUM:
-        return mode == OP_MODE_DRUM && !(s_menu_pending ? s_menu_pending_volca : s_volca_mode);
-    case OP_MENU_COL_CHORD:
-        return mode == OP_MODE_CHORD;
-    case OP_MENU_COL_SONG:
-        return mode == OP_MODE_SONG;
-    case OP_MENU_COL_SCENE_LAUNCH:
-        return mode == OP_MODE_SCENE_LAUNCH;
-    default:
-        return false;
-    }
+    bool volca = s_menu_pending ? s_menu_pending_volca : s_volca_mode;
+    return slot == slot_for(mode, volca);
 }
 
-/* Current mode pulses white; other available modes show their color at
- * the dim "available" level; everything else is off. */
+/* Current mode pulses white; other modes on the menu show their color at the
+ * dim "available" level; everything else is off. */
 static void render_menu(uint32_t now_ms) {
     float pulse = menu_selected_pulse_level(now_ms);
     for (uint8_t row = TILES_GRID_MIN_ROW + 1u; row <= TILES_GRID_MAX_ROW; row++) {
         for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
             float r = 0.0f, g = 0.0f, b = 0.0f;
-            if (row == OP_MENU_ROW) {
-                if (col_is_current_mode(col)) {
-                    r = g = b = pulse;
-                } else if (col_is_available(col)) {
-                    render_menu_col_color(col, &r, &g, &b);
-                    r *= OP_SCALE_AVAILABLE_LEVEL;
-                    g *= OP_SCALE_AVAILABLE_LEVEL;
-                    b *= OP_SCALE_AVAILABLE_LEVEL;
-                }
-            } else if (row == OP_MENU_GUITAR_ROW && col == OP_MENU_GUITAR_COL) {
-                tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
-                if (mode == OP_MODE_GUITAR) {
-                    r = g = b = pulse;
-                } else {
-                    r = OP_MENU_GUITAR_R * OP_SCALE_AVAILABLE_LEVEL;
-                    g = OP_MENU_GUITAR_G * OP_SCALE_AVAILABLE_LEVEL;
-                    b = OP_MENU_GUITAR_B * OP_SCALE_AVAILABLE_LEVEL;
-                }
-            } else if (row == OP_MENU_HARMONY_ROW && col == OP_MENU_HARMONY_COL) {
-                tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
-                if (mode == OP_MODE_HARMONY) {
-                    r = g = b = pulse;
-                } else {
-                    r = TILES_HARMONY_COLOR_R * OP_SCALE_AVAILABLE_LEVEL;
-                    g = TILES_HARMONY_COLOR_G * OP_SCALE_AVAILABLE_LEVEL;
-                    b = TILES_HARMONY_COLOR_B * OP_SCALE_AVAILABLE_LEVEL;
-                }
-            } else if (row == OP_MENU_VOLCA_ROW && col == OP_MENU_VOLCA_COL) {
-                tiles_op_mode_t mode = s_menu_pending ? s_menu_pending_mode : s_active_mode;
-                bool volca = s_menu_pending ? s_menu_pending_volca : s_volca_mode;
-                if (mode == OP_MODE_DRUM && volca) {
-                    r = g = b = pulse;
-                } else {
-                    r = TILES_VOLCA_COLOR_R * OP_SCALE_AVAILABLE_LEVEL;
-                    g = TILES_VOLCA_COLOR_G * OP_SCALE_AVAILABLE_LEVEL;
-                    b = TILES_VOLCA_COLOR_B * OP_SCALE_AVAILABLE_LEVEL;
-                }
+            const menu_slot_t *slot = slot_at(row, col);
+            if (slot != NULL && slot_is_current(slot)) {
+                r = g = b = pulse;
+            } else if (slot != NULL && slot_enabled(slot)) {
+                r = slot->r * OP_SCALE_AVAILABLE_LEVEL;
+                g = slot->g * OP_SCALE_AVAILABLE_LEVEL;
+                b = slot->b * OP_SCALE_AVAILABLE_LEVEL;
             }
             tiles_lighting_set_standby_pad_rgb(board_pad_for_row_col(row, col), r, g, b);
         }
@@ -2384,40 +2331,11 @@ static void handle_menu_taps(void) {
             if (touched && !s_menu_prev_pad_touched[pad - 1u]) {
                 tiles_haptics_trigger_touch_pulse(pad);
             }
-            if (!s_menu_pending && row == OP_MENU_ROW && touched &&
-                (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD && col_is_available(col)) {
-                tiles_op_mode_t mode = OP_MODE_MELODIC;
-                if (col == OP_MENU_COL_CHORD) {
-                    mode = OP_MODE_CHORD;
-                } else if (col == OP_MENU_COL_SEQUENCER) {
-                    mode = OP_MODE_SEQUENCER;
-                } else if (col == OP_MENU_COL_DRUM) {
-                    mode = OP_MODE_DRUM;
-                } else if (col == OP_MENU_COL_SONG) {
-                    mode = OP_MODE_SONG;
-                } else if (col == OP_MENU_COL_SCENE_LAUNCH) {
-                    mode = OP_MODE_SCENE_LAUNCH;
-                }
-                s_menu_pending_mode = mode;
-                s_menu_pending_volca = false;
-                s_menu_pending = true;
-            }
-            if (!s_menu_pending && row == OP_MENU_GUITAR_ROW && col == OP_MENU_GUITAR_COL && touched &&
+            const menu_slot_t *slot = slot_at(row, col);
+            if (!s_menu_pending && slot != NULL && slot_enabled(slot) && touched &&
                 (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
-                s_menu_pending_mode = OP_MODE_GUITAR;
-                s_menu_pending_volca = false;
-                s_menu_pending = true;
-            }
-            if (!s_menu_pending && row == OP_MENU_HARMONY_ROW && col == OP_MENU_HARMONY_COL && touched &&
-                (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
-                s_menu_pending_mode = OP_MODE_HARMONY;
-                s_menu_pending_volca = false;
-                s_menu_pending = true;
-            }
-            if (!s_menu_pending && row == OP_MENU_VOLCA_ROW && col == OP_MENU_VOLCA_COL && touched &&
-                (float)tiles_hall_get_depth(pad) > OP_MENU_SELECT_DEPTH_THRESHOLD) {
-                s_menu_pending_mode = OP_MODE_DRUM;
-                s_menu_pending_volca = true;
+                s_menu_pending_mode = slot->mode;
+                s_menu_pending_volca = slot->volca;
                 s_menu_pending = true;
             }
             s_menu_prev_pad_touched[pad - 1u] = touched;
@@ -3037,6 +2955,9 @@ void tiles_op_mode_init(bool crash_recovered) {
         s_active_mode = OP_MODE_MELODIC;
         s_volca_mode = false;
     }
+    for (uint8_t e = 0; e < TILES_MENU_ENTRY_COUNT; e++) {
+        s_menu_entry_enabled[e] = true;
+    }
     s_menu_pending_volca = false;
     s_menu_visible = false;
     s_menu_pending = false;
@@ -3365,6 +3286,25 @@ bool tiles_op_mode_is_sequencer_active(void) {
      * can tick with every lane stopped.) */
     return s_active_mode == OP_MODE_SEQUENCER || any_lane_running() || s_active_mode == OP_MODE_SONG ||
            any_song_slot_running() || s_active_mode == OP_MODE_DRUM;
+}
+
+void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool enabled) {
+    if (entry >= TILES_MENU_ENTRY_COUNT) {
+        return;
+    }
+    s_menu_entry_enabled[entry] = enabled;
+    const menu_slot_t *current = slot_for(s_active_mode, s_volca_mode);
+    if (!enabled && current != NULL && current->entry == (int8_t)entry) {
+        if (s_menu_visible) {
+            menu_exit();
+        }
+        set_volca(false);
+        set_active_mode(OP_MODE_MELODIC);
+    }
+}
+
+bool tiles_op_mode_get_menu_entry_enabled(tiles_op_mode_menu_entry_t entry) {
+    return entry < TILES_MENU_ENTRY_COUNT && s_menu_entry_enabled[entry];
 }
 
 bool tiles_op_mode_test_set_mode(const char *name) {

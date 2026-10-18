@@ -3,21 +3,28 @@
 /* Operation modes and their menus: what the pad grid and the triangle,
  * diamond, "-"/"+" and circle buttons do in each mode.
  *
- * ---- Modes (triangle opens the mode menu: one pad per mode) --------------
- *   1 Melodic      (magenta)  default. Notes via services/expression.c.
- *   2 Sequencer    (red)      4 lanes x 24 steps (below).
- *   3 Drums        (lime)     16/32-step drum sequencer on MIDI channel
- *                             10, Drum Rack note order; circle + triangle
- *                             flips its step page (services/drum_seq.h).
- *   4 Chord        (blue)     columns 1-2 play chords (op_mode.c), columns
- *                             3-6 are a melody grid (expression.c).
- *   5 Song         (yellow)   BETA, untested on hardware: a 24-slot
- *                             looper, 128 steps per pattern.
- *   6 Ableton      (teal)     Scene Launch: clip grid for Live's Session
- *                             View (daw-integration/).
- *   7 Bass guitar  (amber)    rows = strings, columns = frets; "-"/"+"
- *                             shift the fret window (note_map.h). First
- *                             pad of row 2: row 1 is full.
+ * ---- Modes (triangle opens the mode menu) ----------------------------------
+ * One column per family, the first of each on row 1 (nearest the buttons),
+ * more of the family below it (MENU_SLOTS in op_mode.c):
+ *   column 1  Melodic     (magenta)  default. Notes via expression.c.
+ *             Chord       (blue)     columns 1-2 play chords (op_mode.c),
+ *                                    columns 3-6 a melody grid.
+ *   column 2  Sequencer   (red)      4 lanes x 24 steps (below).
+ *             Drums       (lime)     16/32-step drum sequencer on MIDI
+ *                                    channel 10, Drum Rack order; circle +
+ *                                    triangle flips its page (drum_seq.h).
+ *             Song        (yellow)   BETA, untested on hardware: a 24-slot
+ *                                    looper, 128 steps per pattern.
+ *   column 3  Harmony     (lt blue)  chord machine (harmony.h).
+ *   column 4  Bass guitar (amber)    rows = strings, columns = frets;
+ *                                    "-"/"+" shift the fret window.
+ *   column 5  Ableton     (teal)     Scene Launch: clip grid for Live's
+ *                                    Session View (daw-integration/).
+ *             Volca       (purple)   drum mode for a Volca Sample, each drum
+ *                                    on its own channel (drum_seq.h).
+ *   column 6  experimental modes, none yet.
+ * Every mode but melodic can be taken off the menu (settings modes.*, for
+ * the companion app); taking off the one in use returns to melodic.
  * The current mode pulses white in the menu. A pick (press past half)
  * takes effect once the finger lifts, so it can't play a note in the new
  * mode. Melodic, bass guitar and chord pass notes through expression.c;
@@ -143,3 +150,22 @@ bool tiles_op_mode_pattern_flash_underglow_color(float *out_r, float *out_g, flo
  * a mode by name (melodic, chord, sequencer, bass, song, ableton, drums),
  * closing any menu. False for an unknown name. */
 bool tiles_op_mode_test_set_mode(const char *name);
+
+/* The menu entries the companion app can add or remove (settings modes.*).
+ * Melodic is always on. */
+typedef enum {
+    TILES_MENU_CHORD = 0,
+    TILES_MENU_SEQUENCER,
+    TILES_MENU_DRUMS,
+    TILES_MENU_SONG,
+    TILES_MENU_HARMONY,
+    TILES_MENU_BASS,
+    TILES_MENU_ABLETON,
+    TILES_MENU_VOLCA,
+    TILES_MENU_ENTRY_COUNT
+} tiles_op_mode_menu_entry_t;
+
+/* Off: the pad goes dark and can't be picked; if that mode is in use, back
+ * to melodic. */
+void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool enabled);
+bool tiles_op_mode_get_menu_entry_enabled(tiles_op_mode_menu_entry_t entry);
