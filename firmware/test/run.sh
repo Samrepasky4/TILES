@@ -38,6 +38,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_harmony_core.c src
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/services/bounce_core.c -o /tmp/sentia_tiles_test_bounce_core
 /tmp/sentia_tiles_test_bounce_core
 
+# Strike settle: when a struck pad's note can go before the follow-through ends.
+cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_strike_settle.c src/services/strike_settle.c -o /tmp/sentia_tiles_test_strike_settle
+/tmp/sentia_tiles_test_strike_settle
+
 # Flash store (power-cut simulation) and the settings table on top of it.
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/storage test/test_kv_store.c src/storage/kv_store.c -o /tmp/sentia_tiles_test_kv_store
 /tmp/sentia_tiles_test_kv_store

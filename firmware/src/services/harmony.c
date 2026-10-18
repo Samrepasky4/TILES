@@ -12,6 +12,7 @@
 #include "midi_out.h"
 #include "note_map.h"
 #include "pedal.h"
+#include "strike_settle.h"
 #include "touch.h"
 
 #include <stdbool.h>
@@ -29,8 +30,8 @@
 
 /* Strikes, as on melodic pads: past the strike depth, then a short
  * follow-through so the velocity sees how deep the hit went (firing at the
- * threshold itself read every chord soft). Expression.c's numbers. */
-#define HARMONY_FOLLOWTHROUGH_MS 20u
+ * threshold itself read every chord soft), cut short once the key stops
+ * going down (strike_settle.h). Expression.c's numbers. */
 /* The right-hand pads act on a press (Hall depth), not on touch, so a
  * resting finger picks nothing; they re-arm once the key comes up. */
 #define HARMONY_MOD_PRESS_DEPTH TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA
@@ -69,6 +70,8 @@ static float s_peak_depth[TILES_NUM_PADS];
 static bool s_awaiting_strike[TILES_NUM_PADS];
 static bool s_strike_crossed[TILES_NUM_PADS];
 static uint32_t s_crossed_ms[TILES_NUM_PADS];
+static tiles_strike_settle_t s_settle[TILES_NUM_PADS];
+static uint32_t s_last_sample_ms[TILES_NUM_PADS]; /* the Hall sample last fed to s_settle */
 
 /* Right-hand pads: pressed (by depth), and when, for "held while striking". */
 static bool s_mod_pressed[TILES_NUM_PADS];
@@ -375,12 +378,19 @@ static void handle_root(uint8_t pad, uint8_t root_pc, bool in_key, bool touched,
         if (touched && depth > s_peak_depth[i]) {
             s_peak_depth[i] = depth;
         }
+        uint32_t sample_ms = tiles_hall_get_sample(pad).sample_time_ms;
         if (!s_strike_crossed[i] && s_peak_depth[i] >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA) {
             s_strike_crossed[i] = true;
             s_crossed_ms[i] = now_ms;
             s_strum_pending[i] = false; /* a real press: a chord, not a pluck */
+            tiles_strike_settle_begin(&s_settle[i], s_peak_depth[i], now_ms);
+            s_last_sample_ms[i] = sample_ms;
+        } else if (s_strike_crossed[i] && touched && sample_ms != s_last_sample_ms[i]) {
+            s_last_sample_ms[i] = sample_ms;
+            tiles_strike_settle_sample(&s_settle[i], depth, sample_ms);
         }
-        if (s_strike_crossed[i] && (!touched || now_ms - s_crossed_ms[i] >= HARMONY_FOLLOWTHROUGH_MS)) {
+        if (s_strike_crossed[i] &&
+            (!touched || tiles_strike_settle_ready(&s_settle[i], s_peak_depth[i], TILES_EXPRESSION_FULL_STRIKE_DEPTH, now_ms))) {
             uint8_t velocity =
                 tiles_expression_velocity_from_strike(s_crossed_ms[i] - s_touch_start_ms[i], s_peak_depth[i]);
             chord_strike(pad, root_pc, velocity);

@@ -107,3 +107,9 @@ uint8_t tiles_expression_velocity_from_strike(uint32_t strike_time_ms, float pea
  * single source of truth: expression.c's MIN_STRIKE_DEPTH_DELTA is defined
  * from it. */
 #define TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA 150.0f
+/* Overshoot past it (by the end of the follow-through) at which the depth
+ * signal maxes out; a strike this deep has nothing left to measure
+ * (strike_settle.h). Unmeasured. */
+#define TILES_EXPRESSION_STRIKE_OVERSHOOT_FULL_SCALE 550.0f
+#define TILES_EXPRESSION_FULL_STRIKE_DEPTH \
+    (TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA + TILES_EXPRESSION_STRIKE_OVERSHOOT_FULL_SCALE)

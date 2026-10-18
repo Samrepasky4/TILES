@@ -9831,3 +9831,25 @@ change. Search it by file or feature name.
     fitted to the scale at playback, like a sequencer step; unpicked lanes
     still follow the scale. RAM-only, like the heights; no preview sound
     when picking (the sequencer has none either).
+- **Notes no longer wait out the whole velocity window (0.8.4,
+  2026-10-17).** Reported: "when recording, the MIDI notes are triggered
+  late; there's an offset in the recorded sequence, so there's latency
+  somewhere".
+  - Where it was: every melodic (and Prism chord) strike waited
+    VELOCITY_FOLLOWTHROUGH_MS = 20 ms after crossing the strike depth before
+    its Note-On, on top of the MPR121's ~4 ms (ESI 1 ms, 4-sample second
+    filter) and a pass (~2.5 ms): about 27 ms even for the hardest hit, the
+    same on every note, so it showed as a steady late offset when
+    recording. The clock-to-note path (sequencers, drums, Bouncing notes)
+    was already one pass: an external 0xF8 steps them the same pass and
+    TinyUSB starts the transfer on write. Sequencer capture records on the
+    touch edge, so it wasn't affected; Duet's chord pads never waited.
+  - Fix (strike_settle.c, tested): the note goes as soon as its velocity is
+    known: at once when the peak is already at full depth (strike depth +
+    550: the depth score can't grow), or when the key stops going down
+    (2 fresh Hall samples over >= 4 ms without rising 8 depth units);
+    otherwise at the 20 ms cap (a slow press still going). Velocities
+    come out the same as with the full window, except a press that stalls
+    and then pushes on within 20 ms (now read at the stall). Hard hits now
+    go about 15-20 ms sooner. Expression.h now owns the full-scale overshoot
+    (TILES_EXPRESSION_STRIKE_OVERSHOOT_FULL_SCALE) for both callers.

@@ -15,6 +15,7 @@
 #include "octave_control.h"
 #include "op_mode.h"
 #include "pedal.h"
+#include "strike_settle.h"
 
 #include "pico/time.h"
 
@@ -101,8 +102,10 @@ static bool s_harmonics_enabled = true;
  *   - strike_time_ms: time from touch-down to crossing
  *     MIN_STRIKE_DEPTH_DELTA (like a keybed's two-contact timing; ~0 for a
  *     very fast hit).
- *   - peak_depth: how far the strike keeps going during
- *     VELOCITY_FOLLOWTHROUGH_MS after the crossing.
+ *   - peak_depth: how far the strike keeps going during the
+ *     follow-through after the crossing (strike_settle.h: up to
+ *     TILES_STRIKE_FOLLOWTHROUGH_MS, cut short once the key stops going
+ *     down or the depth score is full, so the note isn't held back).
  * Time alone can't tell a quick light tap from a quick hard hit (both
  * cross the threshold at once), and depth read at the instant of crossing
  * can be faked by a fast graze. Over the short follow-through, a light
@@ -122,14 +125,8 @@ static bool s_harmonics_enabled = true;
 #define STRIKE_TIME_MIN_VELOCITY_MS 300u
 #define VELOCITY_CURVE_EXPONENT 1.0f
 
-/* Follow-through window after crossing the threshold before committing:
- * long enough for a light touch to plateau, short enough to stay under
- * perceptible onset latency (~10-20 ms). First guess. */
-#define VELOCITY_FOLLOWTHROUGH_MS 20u
-
-/* Overshoot past MIN_STRIKE_DEPTH_DELTA (by the end of the follow-through)
- * at which the depth signal maxes out. Unmeasured. */
-#define STRIKE_DEPTH_OVERSHOOT_FULL_SCALE 550.0f
+/* Overshoot at which the depth signal maxes out (expression.h). */
+#define STRIKE_DEPTH_OVERSHOOT_FULL_SCALE TILES_EXPRESSION_STRIKE_OVERSHOOT_FULL_SCALE
 
 /* Depth's share of the velocity blend (see "Velocity"). */
 #define STRIKE_DEPTH_WEIGHT 0.85f
@@ -325,6 +322,8 @@ typedef struct {
      * threshold_crossed makes it a one-time capture. */
     uint32_t strike_time_ms;
     bool threshold_crossed;
+    /* The follow-through after the crossing (strike_settle.h). */
+    tiles_strike_settle_t settle;
 
     uint32_t last_seen_sample_time_ms;
 
@@ -1250,6 +1249,9 @@ static void begin_awaiting_strike(pad_expr_t *s, uint8_t pad, uint32_t now_ms) {
     s->awaiting_rest = initial_depth >= MIN_STRIKE_DEPTH_DELTA && (now_ms - s->last_key_up_ms) > STRIKE_FROM_REST_MS;
     s->threshold_crossed = !s->awaiting_rest && initial_depth >= MIN_STRIKE_DEPTH_DELTA;
     s->strike_time_ms = 0;
+    if (s->threshold_crossed) {
+        tiles_strike_settle_begin(&s->settle, initial_depth, now_ms);
+    }
 }
 
 /* Time score 0..1 (fast = 1), shaped by VELOCITY_CURVE_EXPONENT (1.0 =
@@ -1609,6 +1611,9 @@ void tiles_expression_scan(void) {
                         /* First sample past the threshold: record strike_time_ms. */
                         s->threshold_crossed = true;
                         s->strike_time_ms = hs.sample_time_ms - s->touch_start_sample_ms;
+                        tiles_strike_settle_begin(&s->settle, s->peak_depth, hs.sample_time_ms);
+                    } else if (s->threshold_crossed) {
+                        tiles_strike_settle_sample(&s->settle, depth, hs.sample_time_ms);
                     }
                 }
             }
@@ -1617,12 +1622,12 @@ void tiles_expression_scan(void) {
              * the current reading would show it. */
             bool pressed = s->threshold_crossed;
 
-            /* ready = pressed and the follow-through window has passed while touched.
-             * commit_on_release = touch ended before that: commit now with the depth
-             * reached, rather than dropping a real hit or waiting for nothing. */
-            uint32_t crossed_at_ms = s->touch_start_sample_ms + s->strike_time_ms;
-            bool followthrough_elapsed = pressed && (now_ms - crossed_at_ms) >= VELOCITY_FOLLOWTHROUGH_MS;
-            bool ready = touched && followthrough_elapsed;
+            /* ready = pressed and the follow-through is done (strike_settle.h) while
+             * touched. commit_on_release = touch ended before that: commit now with
+             * the depth reached, rather than dropping a real hit or waiting for
+             * nothing. */
+            bool ready = touched && pressed &&
+                         tiles_strike_settle_ready(&s->settle, s->peak_depth, TILES_EXPRESSION_FULL_STRIKE_DEPTH, now_ms);
             bool commit_on_release = !touched && pressed;
 
             if (ready || commit_on_release) {

@@ -38,6 +38,7 @@ add_executable(sentia_tiles_firmware
     services/harmony_core.c
     services/bounce.c
     services/bounce_core.c
+    services/strike_settle.c
     services/play_state.c
     services/drum_pattern.c
     services/debug_mode.c
