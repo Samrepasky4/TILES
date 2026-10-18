@@ -5,10 +5,15 @@
  * services/bounce_core.h; this file is the hardware side. services/op_mode.c
  * owns the mode switch, the shared buttons and the clock.
  *
- *   pads          the column's ball drops from that pad's height (bottom =
- *                 1 .. top = 4) and keeps bouncing; the same height again
- *                 stops it (off). Higher drops land less often and louder:
- *                 heights 1-4 land every 1, 2, 4, 6 eighths.
+ *   pads          tap: the column's ball drops from that pad's height
+ *                 (bottom = 1 .. top = 4) and keeps bouncing; the same
+ *                 height again stops it (off). Higher drops land less often
+ *                 and louder: heights 1-4 land every 1, 2, 4, 6 eighths.
+ *                 Taps act on the lift.
+ *   hold a pad    picks the column's pitch, as a held sequencer step does:
+ *                 the pads turn into the melodic surface with the lane's
+ *                 note pulsing white; touch any pad for its note (circle +
+ *                 triangle backs out). The balls keep bouncing meanwhile.
  *   circle + "-"/"+"  scroll one column: 12 lanes, 6 shown. All pads flash
  *                 pink at either end.
  *   "-" / "+"     stop / start as in the sequencer ("-" twice drops every
@@ -18,7 +23,9 @@
  *   square        the Feel menu only (no pitch bend toggle here).
  *
  * Lane pitches: the scale (circle + triangle) from the key note up, lane 1 the
- * key note itself, at the octave set elsewhere; chromatic = 12 semitones.
+ * key note itself, at the octave set elsewhere; chromatic = 12 semitones. A
+ * picked pitch stays put (key and octave changes don't move it) but is
+ * fitted to the scale, like a sequencer step's.
  * Notes on MIDI channel 11 (shared with the games, which never run at the
  * same time). The balls keep bouncing when you switch modes, like the
  * sequencer; "-" stops them.
@@ -57,6 +64,11 @@ void tiles_bounce_mode_pause(void);
 void tiles_bounce_mode_rewind(void);
 /* Ends any sounding notes (a panic, or a mode that needs the channel). */
 void tiles_bounce_mode_end_all_notes(void);
+
+/* The hold-to-pick pitch view (bounce.h's pads). op_mode.c cancels it on
+ * circle + triangle and keeps standby off while it's open. */
+bool tiles_bounce_mode_is_picking(void);
+void tiles_bounce_mode_cancel_pick(void);
 
 /* Circle + "-"/"+": one column left (-1) or right (+1). */
 void tiles_bounce_mode_scroll(int8_t direction);

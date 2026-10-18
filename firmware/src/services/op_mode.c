@@ -2418,6 +2418,9 @@ static void handle_triangle_click(void) {
                         /* Cancel an open per-step edit (its escape hatch) instead of opening the
                          * picker over it. */
                         edit_exit();
+                    } else if (s_active_mode == OP_MODE_BOUNCE && tiles_bounce_mode_is_picking()) {
+                        /* Same for Bouncing notes' pitch pick. */
+                        tiles_bounce_mode_cancel_pick();
                     } else if (s_active_mode == OP_MODE_DRUM) {
                         /* Drums follow no scale: circle + triangle shows the other page of
                          * steps instead. */
@@ -3418,7 +3421,7 @@ bool tiles_op_mode_has_menu_open(void) {
     /* Sub-views that can sit untouched (menus, pattern bank, step edit,
      * capture waiting for a tempo): standby must not cover them. */
     return s_menu_visible || s_scale_menu_visible || s_pattern_bank_visible || s_seq_edit_mode != OP_SEQ_EDIT_NONE ||
-           s_seq_capture_mode_active;
+           s_seq_capture_mode_active || (s_active_mode == OP_MODE_BOUNCE && tiles_bounce_mode_is_picking());
 }
 
 /* ---- Song mode (BETA) --------------------------------------------------------

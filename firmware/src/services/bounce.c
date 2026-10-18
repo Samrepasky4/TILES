@@ -27,12 +27,20 @@
  * harder. First guesses. */
 static const uint8_t VELOCITY_FOR_HEIGHT[TILES_BOUNCE_MAX_HEIGHT + 1u] = {0u, 84u, 98u, 112u, 127u};
 
+/* Hold a pad this long to pick its lane's pitch (the sequencer's step hold,
+ * OP_SEQ_PITCH_ASSIGN_HOLD_MS). */
+#define BOUNCE_PICK_HOLD_MS 350u
+
 /* Light levels and times: first guesses. */
 #define BOUNCE_HEIGHT_LEVEL 0.35f
 #define BOUNCE_EMPTY_LANE_LEVEL 0.1f
 #define BOUNCE_LAND_FLASH_MS 70u
 #define BOUNCE_END_FLASH_MS 220u
 #define BOUNCE_TRANSPORT_LED_LEVEL 1.0f
+/* The pitch picker: the melodic look (root magenta, naturals white, sharps
+ * dark), the lane's note pulsing white, as in the sequencer's pitch edit. */
+#define BOUNCE_PICK_AVAILABLE_LEVEL 0.5f
+#define BOUNCE_PICK_PULSE_MS 1200.0f
 
 static tiles_bounce_t s_balls;
 static bool s_running;
@@ -43,14 +51,23 @@ static uint32_t s_landed_ms[TILES_BOUNCE_LANES];
 static uint32_t s_end_flash_ms;
 static bool s_rewound;
 static bool s_prev_touched[TILES_NUM_PADS];
+static uint32_t s_touch_started_ms[TILES_NUM_PADS]; /* 0 = not a tap in progress */
+/* A lane's picked note, 0 = none (it follows the scale, lane_note()). */
+static uint8_t s_picked_note[TILES_BOUNCE_LANES];
+#define BOUNCE_NOT_PICKING 0xFFu
+static uint8_t s_pick_lane = BOUNCE_NOT_PICKING;
 
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
 }
 
 /* Lane k's note: the k-th note of the scale from the key note up (the key
- * note itself for lane 0), at the octave set elsewhere. */
+ * note itself for lane 0), at the octave set elsewhere; or the note picked
+ * for it, fitted to the scale as the sequencer's steps are. */
 static uint8_t lane_note(uint8_t lane) {
+    if (s_picked_note[lane] != 0u) {
+        return tiles_note_map_quantize_to_scale(s_picked_note[lane]);
+    }
     int base = (int)BOUNCE_BASE_NOTE + tiles_note_map_get_key_offset() + 12 * tiles_note_map_get_octave_shift();
     uint8_t found = 0u;
     for (int note = base; note < 128; note++) {
@@ -117,14 +134,31 @@ void tiles_bounce_mode_init(void) {
     for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
         s_sounding[lane] = 0u;
         s_landed_ms[lane] = 0u;
+        s_picked_note[lane] = 0u;
     }
     tiles_bounce_mode_enter();
 }
 
-void tiles_bounce_mode_enter(void) {
+/* A finger already down isn't a new touch, nor a tap when it lifts. */
+static void resync_touches(void) {
     for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
         s_prev_touched[pad - 1u] = tiles_touch_is_touched(pad);
+        s_touch_started_ms[pad - 1u] = 0u;
     }
+}
+
+void tiles_bounce_mode_enter(void) {
+    s_pick_lane = BOUNCE_NOT_PICKING;
+    resync_touches();
+}
+
+bool tiles_bounce_mode_is_picking(void) {
+    return s_pick_lane != BOUNCE_NOT_PICKING;
+}
+
+void tiles_bounce_mode_cancel_pick(void) {
+    s_pick_lane = BOUNCE_NOT_PICKING;
+    resync_touches();
 }
 
 bool tiles_bounce_mode_is_running(void) {
@@ -190,26 +224,57 @@ void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock) {
     }
 }
 
+/* The picker is open: the first new touch, anywhere, is the lane's note. */
+static void handle_pick(void) {
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        bool touched = tiles_touch_is_touched(pad);
+        bool was = s_prev_touched[pad - 1u];
+        s_prev_touched[pad - 1u] = touched;
+        if (touched && !was) {
+            s_picked_note[s_pick_lane] = tiles_note_map_get_note(pad);
+            tiles_haptics_trigger_touch_pulse(pad);
+            tiles_bounce_mode_cancel_pick(); /* closes it; this finger is no tap */
+            return;
+        }
+    }
+}
+
+/* A tap (lifted before BOUNCE_PICK_HOLD_MS) drops the column's ball from
+ * that pad's height, or stops it if it's already there; it acts on the
+ * lift, so a hold changes nothing but the pitch. */
 void tiles_bounce_mode_handle_input(uint32_t now) {
-    (void)now;
+    if (tiles_bounce_mode_is_picking()) {
+        handle_pick();
+        return;
+    }
     for (uint8_t row = 1u; row <= TILES_GRID_MAX_ROW; row++) {
         for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
             uint8_t pad = board_pad_for_row_col(row, col);
+            uint8_t i = (uint8_t)(pad - 1u);
             bool touched = tiles_touch_is_touched(pad);
-            bool was = s_prev_touched[pad - 1u];
-            s_prev_touched[pad - 1u] = touched;
-            if (!touched || was) {
-                continue;
-            }
+            bool was = s_prev_touched[i];
+            s_prev_touched[i] = touched;
             uint8_t lane = (uint8_t)(s_offset + col - 1u);
-            uint8_t height = (uint8_t)(TILES_GRID_MAX_ROW + 1u - row); /* bottom row = 1 */
-            if (s_balls.height[lane] == height) {
-                tiles_bounce_set_height(&s_balls, lane, 0u); /* the same height again: off */
-                lane_off(lane);
-            } else {
-                tiles_bounce_set_height(&s_balls, lane, height);
+            if (touched && !was) {
+                s_touch_started_ms[i] = now | 1u;
+            } else if (touched) {
+                if (s_touch_started_ms[i] != 0u && now - s_touch_started_ms[i] >= BOUNCE_PICK_HOLD_MS) {
+                    s_pick_lane = lane;
+                    resync_touches(); /* the held finger lifts without a tap */
+                    tiles_haptics_trigger_touch_pulse(pad);
+                    return;
+                }
+            } else if (was && s_touch_started_ms[i] != 0u) {
+                s_touch_started_ms[i] = 0u;
+                uint8_t height = (uint8_t)(TILES_GRID_MAX_ROW + 1u - row); /* bottom row = 1 */
+                if (s_balls.height[lane] == height) {
+                    tiles_bounce_set_height(&s_balls, lane, 0u); /* the same height again: off */
+                    lane_off(lane);
+                } else {
+                    tiles_bounce_set_height(&s_balls, lane, height);
+                }
+                tiles_haptics_trigger_touch_pulse(pad);
             }
-            tiles_haptics_trigger_touch_pulse(pad);
         }
     }
 }
@@ -232,16 +297,50 @@ static void lane_rgb(uint8_t lane, float *r, float *g, float *b) {
     *g = 0.0f;
     *b = 0.0f;
     switch ((int)h % 6) { /* the hue's sixth of the circle */
-    case 0: *r = 1.0f; *g = x; break;
-    case 1: *r = x; *g = 1.0f; break;
-    case 2: *g = 1.0f; *b = x; break;
-    case 3: *g = x; *b = 1.0f; break;
-    case 4: *r = x; *b = 1.0f; break;
-    default: *r = 1.0f; *b = x; break;
+    case 0:
+        *r = 1.0f;
+        *g = x;
+        break;
+    case 1:
+        *r = x;
+        *g = 1.0f;
+        break;
+    case 2:
+        *g = 1.0f;
+        *b = x;
+        break;
+    case 3:
+        *g = x;
+        *b = 1.0f;
+        break;
+    case 4:
+        *r = x;
+        *b = 1.0f;
+        break;
+    default:
+        *r = 1.0f;
+        *b = x;
+        break;
     }
 }
 
-void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led, bool clock_running) {
+static void render_pick(uint32_t now) {
+    uint8_t current = lane_note(s_pick_lane);
+    float pulse = slow_pulse(now, BOUNCE_PICK_PULSE_MS, 0.25f, 1.0f);
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        float r = 0.0f, g = 0.0f, b = 0.0f;
+        if (tiles_note_map_get_note(pad) == current) {
+            r = g = b = pulse;
+        } else if (tiles_note_map_is_root_pad(pad)) {
+            r = b = BOUNCE_PICK_AVAILABLE_LEVEL;
+        } else if (tiles_note_map_is_natural_pad(pad)) {
+            r = g = b = BOUNCE_PICK_AVAILABLE_LEVEL;
+        }
+        tiles_lighting_set_standby_pad_rgb(pad, r, g, b);
+    }
+}
+
+static void render_lanes(uint32_t now) {
     bool end_flash = s_end_flash_ms != 0u && now - s_end_flash_ms < BOUNCE_END_FLASH_MS;
     for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
         uint8_t lane = (uint8_t)(s_offset + col - 1u);
@@ -275,7 +374,14 @@ void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led,
             tiles_lighting_set_standby_pad_rgb(pad, r, g, b);
         }
     }
+}
 
+void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led, bool clock_running) {
+    if (tiles_bounce_mode_is_picking()) {
+        render_pick(now);
+    } else {
+        render_lanes(now);
+    }
     for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
         float level = 0.0f;
         if (col == TILES_CIRCLE_BUTTON_COL) {

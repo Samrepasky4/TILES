@@ -9816,3 +9816,18 @@ change. Search it by file or feature name.
     blue-violet -> magenta-violet.
   - A step is an eighth, not a sixteenth (BOUNCE_PULSES_PER_STEP 12): heights
     1-4 land every 1, 2, 4, 6 eighths, and the balls move half as fast.
+- **Bouncing notes: hold a pad to pick the lane's pitch (0.8.3,
+  2026-10-17).** Asked: "holding notes makes bouncing notes be pitch
+  selectable" (the "regular mechanics" from the original request: the
+  sequencer's held step).
+  - Hold a pad 350 ms (BOUNCE_PICK_HOLD_MS, the sequencer's
+    OP_SEQ_PITCH_ASSIGN_HOLD_MS): the pads turn into the melodic surface,
+    the lane's note pulsing white; the first new touch anywhere is the
+    lane's note and closes it; circle + triangle backs out. Balls keep
+    bouncing meanwhile; standby stays off while it's open.
+  - Taps now act on the lift (they set or stop the height), so a hold never
+    changes the height first.
+  - A picked note is absolute (key and octave changes don't move it) and
+    fitted to the scale at playback, like a sequencer step; unpicked lanes
+    still follow the scale. RAM-only, like the heights; no preview sound
+    when picking (the sequencer has none either).
