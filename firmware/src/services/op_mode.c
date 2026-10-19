@@ -3214,6 +3214,9 @@ void tiles_op_mode_init(bool crash_recovered) {
  * standby animation don't stop it; a game (it owns channel 11 and the
  * haptics) and deep sleep do. */
 static bool s_tick_start_edge; /* a Start the tick stepped on, for the scan's other uses */
+/* The clock as playback last stepped on it: a tick with nothing new skips. */
+static uint32_t s_stepped_pulse;
+static bool s_stepped_running;
 
 static bool playback_paused(void) {
     return tiles_game_mode_is_active() || tiles_standby_is_deep_sleep();
@@ -3225,6 +3228,8 @@ static bool mode_is_shown(tiles_op_mode_t mode) {
 }
 
 static void advance_playback(tiles_midi_clock_state_t clock) {
+    s_stepped_pulse = clock.pulse_count;
+    s_stepped_running = clock.running;
     tiles_midi_out_batch_begin();
     /* Except the lane a capture is recording (seq_capture_advance_clock()). */
     for (uint8_t lane = 0u; lane < OP_SEQ_NUM_LANES; lane++) {
@@ -3254,6 +3259,8 @@ void tiles_op_mode_playback_tick(void) {
     tiles_midi_clock_state_t clock = tiles_midi_clock_get_state();
     if (clock.start_edge) {
         s_tick_start_edge = true;
+    } else if (clock.pulse_count == s_stepped_pulse && clock.running == s_stepped_running) {
+        return; /* no new pulse: nothing to step (the scan does the rest) */
     }
     advance_playback(clock);
 }

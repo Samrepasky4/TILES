@@ -9960,3 +9960,9 @@ change. Search it by file or feature name.
     fades over 140 ms. A pad write is ~0.7 ms, so the frame goes out at most
     two pads per scan, biggest change first (a full repaint at once held
     the loop ~17 ms).
+  - Cost, measured on unit 2 the same day (loop.avg_us, nothing playing):
+    0.8.6 2.48 ms (Bouncing notes) / 2.40 (melodic); 0.8.7 without the
+    ticks 2.55 / 2.47; with four ticks that step playback every time
+    2.78; with ticks that skip when no new pulse or edge came in (what
+    shipped) 2.63 / 2.56. (The ~2.1 ms seen earlier in the week was with
+    less MIDI coming in from Live.)
