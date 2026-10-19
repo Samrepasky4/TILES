@@ -124,7 +124,11 @@ bool tiles_drum_player_repeats_pending(const tiles_drum_player_t *pl);
  * pattern plays on from wherever it has got to. */
 void tiles_drum_player_fire_step(tiles_drum_player_t *pl, const tiles_drum_pattern_t *pat,
                                  const tiles_drum_output_t *out, uint8_t step, uint8_t velocity);
+/* A clock Start `song_pulse` pulses into the song (midi_clock.h): the step
+ * the pattern would be on had it played from the top, now. */
+void tiles_drum_player_start_at(tiles_drum_player_t *pl, const tiles_drum_pattern_t *pat,
+                                const tiles_drum_output_t *out, uint32_t pulse_count, uint32_t song_pulse);
 /* Call every scan with the clock snapshot (pulse count, running,
- * start_edge). */
+ * start_edge: a Start at the song's top). */
 void tiles_drum_player_advance(tiles_drum_player_t *pl, const tiles_drum_pattern_t *pat, const tiles_drum_output_t *out,
                                uint32_t pulse_count, bool clock_running, bool start_edge);

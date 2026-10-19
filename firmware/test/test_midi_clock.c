@@ -18,6 +18,11 @@ bool tiles_midi_in_register_realtime_callback(tiles_midi_in_realtime_callback_t 
     return true;
 }
 
+static tiles_midi_in_song_position_callback_t s_spp;
+void tiles_midi_in_set_song_position_callback(tiles_midi_in_song_position_callback_t callback) {
+    s_spp = callback;
+}
+
 static void byte(uint8_t b) {
     s_rt(b, g_now_ms);
 }
@@ -166,6 +171,39 @@ int main(void) {
     }
     uint32_t pulses = pass().pulse_count - from;
     assert(pulses >= 479u && pulses <= 481u);
+
+    /* 11. Song Position Pointer + Continue (a DAW playing from mid-song):
+     * starts on the next Clock at that position, the beat phase matching */
+    assert(s_spp != NULL);
+    g_now_ms = 400000u;
+    byte(0xFC);
+    pass();
+    s_spp(9u, g_now_ms); /* 9 sixteenths in: beat 3, second sixteenth */
+    byte(0xFB);
+    st = pass();
+    assert(!st.running && !st.start_edge);
+    byte(0xF8);
+    st = pass();
+    assert(st.running && st.start_edge && st.song_pulse == 54u && st.pulse_count % 24u == 54u % 24u);
+    for (int i = 0; i < 6; i++) {
+        byte(0xF8);
+    }
+    st = pass();
+    assert(st.song_pulse == 60u && !st.start_edge);
+
+    /* 12. a plain Continue (no position) resumes; a Start is the top again */
+    byte(0xFC);
+    pass();
+    byte(0xFB);
+    st = pass();
+    assert(st.running && !st.start_edge);
+    byte(0xFC);
+    pass();
+    s_spp(40u, g_now_ms);
+    byte(0xFA); /* a Start ignores the position */
+    byte(0xF8);
+    st = pass();
+    assert(st.start_edge && st.song_pulse == 0u && st.pulse_count % 24u == 0u);
 
     printf("midi_clock: all tests pass\n");
     return 0;

@@ -241,9 +241,11 @@ static void chord_strike(uint8_t pad, uint8_t root_pc, uint8_t velocity) {
     s_armed_ext = 0u;
 
     s_note_count = build_chord(root_pc, s_notes);
+    tiles_midi_out_batch_begin(); /* the whole chord in one USB transfer */
     for (uint8_t i = 0; i < s_note_count; i++) {
         tiles_midi_note_on(HARMONY_CHANNEL, s_notes[i], velocity);
     }
+    tiles_midi_out_batch_end();
     remember_for_strum();
     s_sounding_pad = pad;
     s_sounding_root_pc = root_pc;
@@ -257,6 +259,7 @@ static void chord_strike(uint8_t pad, uint8_t root_pc, uint8_t velocity) {
 static void chord_rebuild(void) {
     uint8_t next[HARMONY_MAX_NOTES];
     uint8_t n = build_chord(s_sounding_root_pc, next);
+    tiles_midi_out_batch_begin();
     for (uint8_t i = 0; i < s_note_count; i++) {
         if (memchr(next, s_notes[i], n) == NULL) {
             tiles_midi_note_off(HARMONY_CHANNEL, s_notes[i], 0u);
@@ -267,6 +270,7 @@ static void chord_rebuild(void) {
             tiles_midi_note_on(HARMONY_CHANNEL, next[i], s_sounding_velocity);
         }
     }
+    tiles_midi_out_batch_end();
     memcpy(s_notes, next, n);
     s_note_count = n;
     remember_for_strum();

@@ -282,6 +282,16 @@ int main(void) {
     tiles_drum_player_advance(&pl, &pat, &out, 105, false, false);
     assert(rec.on[36] == 1 && rec.off[36] == 0);
 
+    /* start_at: a Start 5 sixteenths into the song plays step 6 now, on the grid */
+    {
+        tiles_drum_player_t pl2;
+        tiles_drum_player_init(&pl2);
+        pl2.running = true;
+        tiles_drum_player_start_at(&pl2, &pat, &out, 1000u, 5u * TILES_DRUM_CLOCKS_PER_STEP);
+        assert(pl2.step == 5u && pl2.step_started_pulse == 1000u);
+        tiles_drum_player_start_at(&pl2, &pat, &out, 1000u, 5u * TILES_DRUM_CLOCKS_PER_STEP + 2u);
+        assert(pl2.step == 5u && pl2.step_started_pulse == 998u);
+    }
     printf("drum_pattern: all tests pass\n");
     return 0;
 }

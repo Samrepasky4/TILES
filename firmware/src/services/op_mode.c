@@ -115,6 +115,23 @@ static void mode_underglow(void); /* the active mode's colour on the underglow *
 #define OP_TRANSPORT_ARMED_BLINK_ON_MS 120u
 #define OP_TRANSPORT_ARMED_BLINK_GAP_MS 120u
 #define OP_TRANSPORT_ARMED_PAUSE_MS 500u
+
+/* That double blink's rhythm: true during the two flashes. Also the mode
+ * menu's "playing in the background" pad. */
+static bool double_blink_on(uint32_t now_ms) {
+    uint32_t cycle_ms = OP_TRANSPORT_ARMED_BLINK_ON_MS * 2u + OP_TRANSPORT_ARMED_BLINK_GAP_MS + OP_TRANSPORT_ARMED_PAUSE_MS;
+    uint32_t t = now_ms % cycle_ms;
+    return t < OP_TRANSPORT_ARMED_BLINK_ON_MS ||
+           (t >= OP_TRANSPORT_ARMED_BLINK_ON_MS + OP_TRANSPORT_ARMED_BLINK_GAP_MS &&
+            t < OP_TRANSPORT_ARMED_BLINK_ON_MS * 2u + OP_TRANSPORT_ARMED_BLINK_GAP_MS);
+}
+
+/* Between the two flashes (dark, so they read as two). */
+static bool double_blink_gap(uint32_t now_ms) {
+    uint32_t cycle_ms = OP_TRANSPORT_ARMED_BLINK_ON_MS * 2u + OP_TRANSPORT_ARMED_BLINK_GAP_MS + OP_TRANSPORT_ARMED_PAUSE_MS;
+    uint32_t t = now_ms % cycle_ms;
+    return t >= OP_TRANSPORT_ARMED_BLINK_ON_MS && t < OP_TRANSPORT_ARMED_BLINK_ON_MS + OP_TRANSPORT_ARMED_BLINK_GAP_MS;
+}
 /* Recording: the same breathing shape as standby's deep-sleep pulse,
  * duplicated (standby's constants are file-local). */
 #define OP_TRANSPORT_RECORDING_PULSE_PERIOD_MS 3000.0f
@@ -247,11 +264,10 @@ static uint32_t s_beat_flash_start_ms;
 #define OP_SEQ_VELOCITY 100u
 
 #define OP_SEQ_DIM_RED_LEVEL 0.3f
-/* An empty step inside the loop: a faint orange, so the loop's length and
- * the mode's colour show on the pads; past the loop, off. */
-#define OP_SEQ_EMPTY_STEP_R 0.1f
-#define OP_SEQ_EMPTY_STEP_G 0.03f
-#define OP_SEQ_EMPTY_STEP_B 0.0f
+/* An empty step inside the loop: the mode's scarlet, faint, so the loop's
+ * length shows on the pads; past the loop, off. Armed steps are the same
+ * scarlet at OP_SEQ_DIM_RED_LEVEL. */
+#define OP_SEQ_EMPTY_STEP_LEVEL 0.1f
 /* Playhead on an UNARMED step: dim white, so the current step always
  * shows. */
 #define OP_SEQ_CURSOR_LEVEL 0.15f
@@ -502,10 +518,12 @@ static void chord_pad_strike(uint8_t pad, uint8_t velocity) {
     tiles_note_map_get_chord_notes(pad, raw);
     build_chord_voicing(raw, s_chord_pad_notes[pad - 1u]);
     s_chord_pad_last_velocity[pad - 1u] = velocity;
+    tiles_midi_out_batch_begin(); /* the whole chord in one USB transfer */
     for (uint8_t i = 0; i < OP_CHORD_NUM_VOICES; i++) {
         tiles_midi_note_on(OP_CHORD_CHANNEL, s_chord_pad_notes[pad - 1u][i], velocity);
         tiles_cv_gate_note_on(s_chord_pad_notes[pad - 1u][i], velocity);
     }
+    tiles_midi_out_batch_end();
     tiles_haptics_trigger_kick(pad, velocity);
     s_chord_pad_sounding[pad - 1u] = true;
 }
@@ -615,8 +633,10 @@ static void edit_enter(uint8_t step, uint32_t started_ms); /* defined below; use
 static void edit_enter_ratchet(uint8_t step); /* defined below; used for circle + touch */
 
 /* True if `lane` is what the grid shows (sequencer mode, viewed lane). */
+static bool other_feature_owns_input(void);
+
 static bool seq_lane_haptics_visible(uint8_t lane) {
-    return s_active_mode == OP_MODE_SEQUENCER && lane == s_seq_edit_lane;
+    return s_active_mode == OP_MODE_SEQUENCER && lane == s_seq_edit_lane && !other_feature_owns_input();
 }
 
 /* Ends the note using the channel and notes captured at note-on, so it's
@@ -716,10 +736,17 @@ static void seq_enter_step(uint8_t lane, uint8_t step) {
     }
 }
 
-static void seq_reset(uint8_t lane, uint32_t now_pulse) {
-    s_seq_step_started_at_pulse[lane] = now_pulse;
+/* A clock Start: the step the lane would be on had it played from the
+ * song's top (step 1 on a Start's downbeat; further in after a DAW's
+ * Song Position Pointer). */
+static void seq_reset(uint8_t lane, tiles_midi_clock_state_t clock) {
+    uint8_t length = pattern_for_lane(lane)->length;
+    if (length < 1u) {
+        length = 1u;
+    }
+    s_seq_step_started_at_pulse[lane] = clock.pulse_count - clock.song_pulse % OP_SEQ_CLOCKS_PER_STEP;
     s_seq_pending_start[lane] = false;
-    seq_enter_step(lane, 0u);
+    seq_enter_step(lane, (uint8_t)((clock.song_pulse / OP_SEQ_CLOCKS_PER_STEP) % length));
 }
 
 /* Called on (re)entering sequencer mode. Never clears patterns (only boot
@@ -806,7 +833,7 @@ static void seq_advance_clock(uint8_t lane, tiles_midi_clock_state_t clock) {
     }
 
     if (clock.start_edge) {
-        seq_reset(lane, clock.pulse_count);
+        seq_reset(lane, clock);
         return;
     }
 
@@ -897,19 +924,22 @@ static void render_sequencer(float beat_flash_level, bool transport_running) {
                 /* Playhead on an unarmed step (or paused / waiting to start): dim white. */
                 tiles_lighting_set_standby_pad_rgb(pad, OP_SEQ_CURSOR_LEVEL, OP_SEQ_CURSOR_LEVEL, OP_SEQ_CURSOR_LEVEL);
             } else if (!pat->step_armed[step]) {
-                tiles_lighting_set_standby_pad_rgb(pad, OP_SEQ_EMPTY_STEP_R, OP_SEQ_EMPTY_STEP_G, OP_SEQ_EMPTY_STEP_B);
+                tiles_lighting_set_standby_pad_rgb(pad, OP_MENU_SEQUENCER_R * OP_SEQ_EMPTY_STEP_LEVEL,
+                                                    OP_MENU_SEQUENCER_G * OP_SEQ_EMPTY_STEP_LEVEL,
+                                                    OP_MENU_SEQUENCER_B * OP_SEQ_EMPTY_STEP_LEVEL);
             } else {
-                /* Armed steps are dim red, tinted toward amber if probability may skip
-                 * them (only while probability_enabled) and toward blue if they ratchet. */
-                float green = 0.0f;
-                float blue = 0.0f;
+                /* Armed steps are the mode's scarlet, dim, tinted toward amber if
+                 * probability may skip them (only while probability_enabled) and toward
+                 * blue if they ratchet. */
+                float green = OP_MENU_SEQUENCER_G * OP_SEQ_DIM_RED_LEVEL;
+                float blue = OP_MENU_SEQUENCER_B * OP_SEQ_DIM_RED_LEVEL;
                 if (pat->probability_enabled && pat->step_probability_percent[step] < 100u) {
-                    green = OP_SEQ_DIM_RED_LEVEL * (float)(100u - pat->step_probability_percent[step]) / 100.0f;
+                    green += OP_SEQ_DIM_RED_LEVEL * (float)(100u - pat->step_probability_percent[step]) / 100.0f;
                 }
                 if (pat->step_ratchet_count[step] > 1u) {
-                    blue = OP_SEQ_DIM_RED_LEVEL * (float)(pat->step_ratchet_count[step] - 1u) / (float)(OP_SEQ_MAX_RATCHET - 1u);
+                    blue += OP_SEQ_DIM_RED_LEVEL * (float)(pat->step_ratchet_count[step] - 1u) / (float)(OP_SEQ_MAX_RATCHET - 1u);
                 }
-                tiles_lighting_set_standby_pad_rgb(pad, OP_SEQ_DIM_RED_LEVEL, green, blue);
+                tiles_lighting_set_standby_pad_rgb(pad, OP_MENU_SEQUENCER_R * OP_SEQ_DIM_RED_LEVEL, green, blue);
             }
         }
     }
@@ -1310,6 +1340,40 @@ static bool slot_is_current(const menu_slot_t *slot) {
 
 /* Current mode pulses white; other modes on the menu show their color at the
  * dim "available" level; everything else is off. */
+static bool any_lane_running(void);
+static bool any_song_slot_running(void);
+
+/* A mode whose playback is running with the clock (in the background,
+ * since the menu is open): sequencer lanes, Song tracks, the drum player
+ * (Drums or Volca, whichever routing it plays) or Bouncing notes. */
+static bool slot_is_playing(const menu_slot_t *slot) {
+    if (!tiles_midi_clock_is_running()) {
+        return false;
+    }
+    switch (slot->mode) {
+    case OP_MODE_SEQUENCER: {
+        for (uint8_t lane = 0u; lane < OP_SEQ_NUM_LANES; lane++) {
+            if (s_seq_lane_running[lane]) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case OP_MODE_SONG:
+        return any_song_slot_running();
+    case OP_MODE_DRUM:
+        return tiles_drum_seq_is_running() && tiles_drum_seq_is_volca() == slot->volca;
+    case OP_MODE_BOUNCE:
+        return tiles_bounce_mode_is_running();
+    default:
+        return false;
+    }
+}
+
+/* The current mode pulses white; a mode playing in the background blinks
+ * twice and pauses in its colour (the diamond's record-armed rhythm); the
+ * rest sit at the available level. */
+#define OP_MENU_PLAYING_GAP_LEVEL 0.15f
 static void render_menu(uint32_t now_ms) {
     float pulse = menu_selected_pulse_level(now_ms);
     for (uint8_t row = TILES_GRID_MIN_ROW + 1u; row <= TILES_GRID_MAX_ROW; row++) {
@@ -1319,9 +1383,15 @@ static void render_menu(uint32_t now_ms) {
             if (slot != NULL && slot_is_current(slot)) {
                 r = g = b = pulse;
             } else if (slot != NULL && slot_enabled(slot)) {
-                r = slot->r * OP_SCALE_AVAILABLE_LEVEL;
-                g = slot->g * OP_SCALE_AVAILABLE_LEVEL;
-                b = slot->b * OP_SCALE_AVAILABLE_LEVEL;
+                float level = OP_SCALE_AVAILABLE_LEVEL;
+                if (slot_is_playing(slot)) {
+                    level = double_blink_on(now_ms)    ? 1.0f
+                            : double_blink_gap(now_ms) ? OP_MENU_PLAYING_GAP_LEVEL
+                                                       : OP_SCALE_AVAILABLE_LEVEL;
+                }
+                r = slot->r * level;
+                g = slot->g * level;
+                b = slot->b * level;
             }
             tiles_lighting_set_standby_pad_rgb(board_pad_for_row_col(row, col), r, g, b);
         }
@@ -2191,7 +2261,7 @@ static void seq_capture_handle_taps(tiles_midi_clock_state_t clock) {
                 note_count = 1u;
                 velocity = OP_SEQ_VELOCITY;
             }
-            tiles_haptics_trigger_kick(pad, velocity);
+            tiles_midi_out_batch_begin(); /* ends below, then the haptic (an I2C write) */
             for (uint8_t i = 0; i < note_count; i++) {
                 tiles_midi_note_on(s_seq_lane_channel[lane], notes[i], velocity);
                 tiles_cv_gate_note_on(notes[i], velocity);
@@ -2506,13 +2576,7 @@ static uint8_t s_song_capture_slot; /* 1..24: the slot being recorded into */
 static float transport_led_level(uint32_t now_ms) {
     float led_level;
     if (s_diamond_record_armed) {
-        uint32_t cycle_ms =
-            OP_TRANSPORT_ARMED_BLINK_ON_MS * 2u + OP_TRANSPORT_ARMED_BLINK_GAP_MS + OP_TRANSPORT_ARMED_PAUSE_MS;
-        uint32_t t = now_ms % cycle_ms;
-        bool on = (t < OP_TRANSPORT_ARMED_BLINK_ON_MS) ||
-                  (t >= OP_TRANSPORT_ARMED_BLINK_ON_MS + OP_TRANSPORT_ARMED_BLINK_GAP_MS &&
-                   t < OP_TRANSPORT_ARMED_BLINK_ON_MS * 2u + OP_TRANSPORT_ARMED_BLINK_GAP_MS);
-        led_level = on ? 1.0f : 0.0f;
+        led_level = double_blink_on(now_ms) ? 1.0f : 0.0f;
     } else if (s_transport_recording) {
         float phase = (float)now_ms / OP_TRANSPORT_RECORDING_PULSE_PERIOD_MS;
         float raw = 0.5f + 0.5f * sinf(2.0f * OP_MODE_PI * phase);
@@ -3140,6 +3204,60 @@ void tiles_op_mode_init(bool crash_recovered) {
     }
 }
 
+/* ---- Playback --------------------------------------------------------------
+ * Every clock-driven part steps here: sequencer lanes, Song tracks, the drum
+ * sequencer and Bouncing notes. From the scan and from
+ * tiles_op_mode_playback_tick(), which main.c runs between its slower
+ * services, so a Clock that arrives mid-pass steps them within a fraction
+ * of a pass instead of at the next scan. One USB transfer per step for all
+ * of them (midi_out.h's batch). Menus, the Feel menu, transpose and the
+ * standby animation don't stop it; a game (it owns channel 11 and the
+ * haptics) and deep sleep do. */
+static bool s_tick_start_edge; /* a Start the tick stepped on, for the scan's other uses */
+
+static bool playback_paused(void) {
+    return tiles_game_mode_is_active() || tiles_standby_is_deep_sleep();
+}
+
+/* The drum grid or the balls are on the pads (their haptics and touches). */
+static bool mode_is_shown(tiles_op_mode_t mode) {
+    return s_active_mode == mode && !s_menu_visible && !s_scale_menu_visible && !other_feature_owns_input();
+}
+
+static void advance_playback(tiles_midi_clock_state_t clock) {
+    tiles_midi_out_batch_begin();
+    /* Except the lane a capture is recording (seq_capture_advance_clock()). */
+    for (uint8_t lane = 0u; lane < OP_SEQ_NUM_LANES; lane++) {
+        if (s_seq_capture_mode_active && lane == s_seq_edit_lane) {
+            continue;
+        }
+        /* Crash-recorder trace: which lane (0-3) is being advanced. */
+        tiles_debug_trace((char)('0' + lane));
+        seq_advance_clock(lane, clock);
+    }
+    /* Except the slot a Song capture is recording. */
+    for (uint8_t slot = 0u; slot < OP_SONG_NUM_SLOTS; slot++) {
+        if (s_song_capture_active && slot == (uint8_t)(s_song_capture_slot - 1u)) {
+            continue;
+        }
+        song_advance_clock(slot, clock);
+    }
+    tiles_drum_seq_advance(clock, mode_is_shown(OP_MODE_DRUM));
+    tiles_bounce_mode_advance(clock, mode_is_shown(OP_MODE_BOUNCE));
+    tiles_midi_out_batch_end();
+}
+
+void tiles_op_mode_playback_tick(void) {
+    if (playback_paused()) {
+        return;
+    }
+    tiles_midi_clock_state_t clock = tiles_midi_clock_get_state();
+    if (clock.start_edge) {
+        s_tick_start_edge = true;
+    }
+    advance_playback(clock);
+}
+
 void tiles_op_mode_scan(void) {
     uint32_t now_ms = to_ms_since_boot(get_absolute_time());
 
@@ -3166,19 +3284,26 @@ void tiles_op_mode_scan(void) {
         s_circle_was_held = tiles_button_is_pressed(TILES_CIRCLE_BUTTON_ID);
         s_minus_was_held = tiles_button_is_pressed(TILES_MINUS_BUTTON_ID);
         s_plus_was_held = tiles_button_is_pressed(TILES_PLUS_BUTTON_ID);
-        /* While another feature owns the board, this scan doesn't run, so a
-         * sequencer note sounding at that moment would never end (and its haptic
-         * would buzz at the sustain floor). End them now; harmless to repeat. */
-        for (uint8_t lane = 0u; lane < OP_SEQ_NUM_LANES; lane++) {
-            if (s_seq_note_sounding[lane]) {
-                seq_end_current_note(lane);
-            }
-        }
-        /* Same for chord notes and drums. */
+        /* Chord pads can't be played meanwhile: end what they hold. */
         if (s_active_mode == OP_MODE_CHORD) {
             chord_end_all_notes();
         }
-        tiles_drum_seq_end_all_notes();
+        if (playback_paused()) {
+            /* A game or deep sleep: playback stops here, so a note sounding at
+             * that moment would never end (and its haptic would buzz at the
+             * sustain floor). End them now; harmless to repeat. */
+            for (uint8_t lane = 0u; lane < OP_SEQ_NUM_LANES; lane++) {
+                if (s_seq_note_sounding[lane]) {
+                    seq_end_current_note(lane);
+                }
+            }
+            tiles_drum_seq_end_all_notes();
+            return;
+        }
+        /* The Feel menu, transpose or the standby animation: playback keeps
+         * time underneath (it froze, then jumped ahead when they closed). */
+        s_tick_start_edge = false; /* nothing else here reads it */
+        advance_playback(tiles_midi_clock_get_state());
         return;
     }
 
@@ -3188,8 +3313,12 @@ void tiles_op_mode_scan(void) {
     handle_transport_and_length(now_ms);
 
     /* Fetched once per scan (it clears start_edge); playback and the beat
-     * flash share it. */
+     * flash share it. A Start a tick already stepped playback on still
+     * counts for the rest of the scan. */
     tiles_midi_clock_state_t clock = tiles_midi_clock_get_state();
+    bool fresh_start_edge = clock.start_edge;
+    clock.start_edge = fresh_start_edge || s_tick_start_edge;
+    s_tick_start_edge = false;
     float beat_flash_level = compute_beat_flash_level(now_ms, clock);
 
     /* Tap tempo starts the viewed lane too: the first tap-tempo start
@@ -3215,28 +3344,11 @@ void tiles_op_mode_scan(void) {
         tiles_midi_clock_set_running(true);
     }
 
-    /* Every lane advances every scan, whatever menu or sub-view is open (they
-     * used to freeze while a menu was up). Except the lane a capture is
-     * recording, which seq_capture_advance_clock() handles instead. */
-    for (uint8_t lane = 0u; lane < OP_SEQ_NUM_LANES; lane++) {
-        if (s_seq_capture_mode_active && lane == s_seq_edit_lane) {
-            continue;
-        }
-        /* Crash-recorder trace: which lane (0-3) is being advanced. */
-        tiles_debug_trace((char)('0' + lane));
-        seq_advance_clock(lane, clock);
-    }
-    /* Same for Song tracks, except the slot a Song capture is recording. */
-    for (uint8_t slot = 0u; slot < OP_SONG_NUM_SLOTS; slot++) {
-        if (s_song_capture_active && slot == (uint8_t)(s_song_capture_slot - 1u)) {
-            continue;
-        }
-        song_advance_clock(slot, clock);
-    }
-    /* The drum sequencer too, shown or not. */
-    tiles_drum_seq_advance(clock, s_active_mode == OP_MODE_DRUM && !s_menu_visible && !s_scale_menu_visible);
-    /* The bouncing balls too, shown or not. */
-    tiles_bounce_mode_advance(clock);
+    /* Playback steps here too (and in the ticks between); only the start
+     * edge this scan fetched is new to it. */
+    tiles_midi_clock_state_t step_clock = clock;
+    step_clock.start_edge = fresh_start_edge;
+    advance_playback(step_clock);
     /* Right after the advance: it saves just after a step starts. */
     tiles_drum_seq_persist_service(now_ms, clock.running);
 
@@ -4150,6 +4262,14 @@ static void song_advance_clock(uint8_t slot, tiles_midi_clock_state_t clock) {
         song_end_current_note(slot);
         return;
     }
+    if (clock.start_edge) {
+        /* A clock Start: step 1 on its downbeat (at the song position), on the
+         * DAW's grid, like the sequencer's lanes. */
+        s_song_pending_start[slot] = false;
+        s_song_step_started_at_pulse[slot] = clock.pulse_count - clock.song_pulse % OP_SEQ_CLOCKS_PER_STEP;
+        song_enter_step(slot, (uint8_t)((clock.song_pulse / OP_SEQ_CLOCKS_PER_STEP) % OP_SONG_NUM_STEPS));
+        return;
+    }
     if (s_song_pending_start[slot]) {
         s_song_pending_start[slot] = false;
         s_song_step_started_at_pulse[slot] = clock.pulse_count;
@@ -4259,7 +4379,7 @@ static void song_capture_handle_taps(tiles_midi_clock_state_t clock) {
                 note_count = 1u;
                 velocity = OP_SONG_VELOCITY;
             }
-            tiles_haptics_trigger_kick(pad, velocity);
+            tiles_midi_out_batch_begin(); /* ends below, then the haptic (an I2C write) */
             for (uint8_t i = 0; i < note_count; i++) {
                 tiles_midi_note_on(s_song_slot_channel[slot], notes[i], velocity);
                 tiles_cv_gate_note_on(notes[i], velocity);

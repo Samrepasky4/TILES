@@ -32,7 +32,9 @@
  * same time). The balls keep bouncing when you switch modes, like the
  * sequencer; "-" stops them.
  *
- * Lights: a lane's drop height dim, its ball bright, a landing flashes white;
+ * Lights: a lane's drop height dim, its ball bright and gliding between
+ * pads on a parabola (timed by the clock between steps), a landing flashes
+ * white and fades;
  * each lane its own hue, deep blue on lane 1 through violet and magenta to
  * hot pink on lane 12, so scrolling shows where you are; an empty lane shows a faint
  * bottom pad. Violet underglow. */
@@ -51,8 +53,10 @@ void tiles_bounce_mode_init(void);
 /* Entering: a finger already down isn't a tap. Leaving: nothing stops. */
 void tiles_bounce_mode_enter(void);
 
-/* Every scan, shown or not: steps the balls on the shared clock. */
-void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock);
+/* Every scan (and op_mode's playback ticks), shown or not: steps the balls
+ * on the shared clock. `shown`: the balls are on the pads, so landings are
+ * felt; in another mode (or under a menu) they only sound. */
+void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock, bool shown);
 
 /* Every scan while the mode is shown. */
 void tiles_bounce_mode_handle_input(uint32_t now_ms);

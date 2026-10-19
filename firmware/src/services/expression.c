@@ -1640,6 +1640,9 @@ void tiles_expression_scan(void) {
                 /* HOLD style: close this pad's held note and any held note of the same
                  * pitch before the new Note-On (re-striking a held key), keeping one
                  * Note-Off per Note-On. No-op in SYNTH style. */
+                /* One USB transfer for the Note-Offs, the setup and the Note-On
+                 * (midi_out.h's batch): one by one, the Note-On left a pass behind. */
+                tiles_midi_out_batch_begin();
                 release_held_note(s);
                 release_held_notes_of_pitch(s->active_note);
                 s->midi_channel =
@@ -1653,6 +1656,7 @@ void tiles_expression_scan(void) {
                 }
                 tiles_midi_send_note_setup(s->midi_channel);
                 tiles_midi_note_on(s->midi_channel, s->active_note, velocity);
+                tiles_midi_out_batch_end();
                 tiles_cv_gate_note_on(s->active_note, velocity);
                 /* Same velocity for the haptic kick and the MIDI note. */
                 tiles_haptics_trigger_kick(pad, velocity);

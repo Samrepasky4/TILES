@@ -35,7 +35,7 @@ static const uint8_t VELOCITY_FOR_HEIGHT[TILES_BOUNCE_MAX_HEIGHT + 1u] = {0u, 84
 /* Light levels and times: first guesses. */
 #define BOUNCE_HEIGHT_LEVEL 0.35f
 #define BOUNCE_EMPTY_LANE_LEVEL 0.1f
-#define BOUNCE_LAND_FLASH_MS 70u
+#define BOUNCE_LAND_FLASH_MS 140u /* white fading back to the lane's colour */
 #define BOUNCE_END_FLASH_MS 220u
 #define BOUNCE_TRANSPORT_LED_LEVEL 1.0f
 /* The pitch picker: the melodic look (root magenta, naturals white, sharps
@@ -53,6 +53,25 @@ static uint32_t s_end_flash_ms;
 static bool s_rewound;
 /* "+" under an external clock: the balls drop on its next beat. */
 static bool s_start_on_beat;
+/* On the pads (op_mode.c): landings are felt only then. */
+static bool s_shown;
+/* The clock as advance() last saw it, for drawing between steps. */
+static uint32_t s_last_pulse_count;
+static uint32_t s_last_pulse_ms;
+static bool s_clock_running;
+
+/* Smooth drawing: the frame wanted, and what each pad was last sent. A pad
+ * write is ~0.7 ms (services/lighting.c), so at most
+ * BOUNCE_PAD_WRITES_PER_SCAN go out per scan, the biggest changes first:
+ * a whole repaint at once would hold the main loop (and the clock's
+ * playback ticks) for ~17 ms. Not drawn for BOUNCE_REPAINT_AFTER_MS (a menu
+ * was up, another mode drew): every pad is sent again. */
+#define BOUNCE_PAD_WRITES_PER_SCAN 2u
+#define BOUNCE_PAD_CHANGE_MIN 0.02f
+#define BOUNCE_REPAINT_AFTER_MS 20u
+static float s_frame[TILES_NUM_PADS][3];
+static float s_sent[TILES_NUM_PADS][3];
+static uint32_t s_last_render_ms;
 static bool s_prev_touched[TILES_NUM_PADS];
 static uint32_t s_touch_started_ms[TILES_NUM_PADS]; /* 0 = not a tap in progress */
 /* A lane's picked note, 0 = none (it follows the scale, lane_note()). */
@@ -124,7 +143,7 @@ static void play_landings(uint16_t landed) {
         }
         s_landed_ms[lane] = now | 1u;
     }
-    for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
+    for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES && s_shown; lane++) {
         uint8_t pad = floor_pad_for(lane);
         if (((landed >> lane) & 1u) && pad != 0u) {
             tiles_haptics_trigger_touch_pulse(pad); /* feel the bounce */
@@ -219,7 +238,13 @@ void tiles_bounce_mode_scroll(int8_t direction) {
     }
 }
 
-void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock) {
+void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock, bool shown) {
+    s_shown = shown;
+    if (clock.pulse_count != s_last_pulse_count) {
+        s_last_pulse_count = clock.pulse_count;
+        s_last_pulse_ms = now_ms();
+    }
+    s_clock_running = clock.running;
     if (s_start_on_beat && clock.running) {
         /* s_step_pulse follows the clock while stopped (below), so a beat
          * boundary after it has passed since the last scan. */
@@ -235,7 +260,8 @@ void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock) {
         return;
     }
     if (clock.start_edge) {
-        s_step_pulse = clock.pulse_count;
+        /* On the song's eighth-note grid (mid-song after a DAW's position). */
+        s_step_pulse = clock.pulse_count - clock.song_pulse % BOUNCE_PULSES_PER_STEP;
         return;
     }
     while (clock.pulse_count - s_step_pulse >= BOUNCE_PULSES_PER_STEP) {
@@ -348,6 +374,12 @@ static void lane_rgb(uint8_t lane, float *r, float *g, float *b) {
     }
 }
 
+static void frame_set(uint8_t pad, float r, float g, float b) {
+    s_frame[pad - 1u][0] = r;
+    s_frame[pad - 1u][1] = g;
+    s_frame[pad - 1u][2] = b;
+}
+
 static void render_pick(uint32_t now) {
     uint8_t current = lane_note(s_pick_lane);
     float pulse = slow_pulse(now, BOUNCE_PICK_PULSE_MS, 0.25f, 1.0f);
@@ -360,43 +392,117 @@ static void render_pick(uint32_t now) {
         } else if (tiles_note_map_is_natural_pad(pad)) {
             r = g = b = BOUNCE_PICK_AVAILABLE_LEVEL;
         }
-        tiles_lighting_set_standby_pad_rgb(pad, r, g, b);
+        frame_set(pad, r, g, b);
     }
 }
 
+/* How far the current step has got, 0..1: whole pulses since it began plus
+ * the time into the pulse, so a ball moves between Clocks too. 0 while
+ * stopped. */
+static float step_fraction(uint32_t now) {
+    if (!s_running || !s_clock_running) {
+        return 0.0f;
+    }
+    float pulse_ms = tiles_midi_clock_get_ms_per_beat() / 24.0f;
+    float into_pulse = pulse_ms > 0.0f ? (float)(now - s_last_pulse_ms) / pulse_ms : 0.0f;
+    if (into_pulse > 1.0f) {
+        into_pulse = 1.0f;
+    }
+    float f = ((float)(s_last_pulse_count - s_step_pulse) + into_pulse) / (float)BOUNCE_PULSES_PER_STEP;
+    return f < 0.0f ? 0.0f : (f > 0.999f ? 0.999f : f);
+}
+
+/* A ball's height above the floor, in pads (0 .. its drop height - 1): a
+ * parabola over its bounce, fast at the floor and slow at the top like a
+ * real one, landing exactly on the step that plays its note. */
+static float ball_y(uint8_t lane, float frac) {
+    uint8_t h = s_balls.height[lane];
+    if (h <= 1u) {
+        return 0.0f;
+    }
+    float period = 2.0f * (float)(h - 1u);
+    float u = ((float)s_balls.phase[lane] + frac) / period;
+    if (u > 1.0f) {
+        u = 1.0f;
+    }
+    return (float)(h - 1u) * 4.0f * u * (1.0f - u);
+}
+
+/* Each lane: its drop height dim, the ball drawn across the two pads it's
+ * between (a constant-power crossfade, so it doesn't dim halfway), a
+ * landing flashing the floor white and fading back, an empty lane a faint
+ * floor; all pads pink at the end of the lanes. */
 static void render_lanes(uint32_t now) {
     bool end_flash = s_end_flash_ms != 0u && now - s_end_flash_ms < BOUNCE_END_FLASH_MS;
+    float frac = step_fraction(now);
     for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
         uint8_t lane = (uint8_t)(s_offset + col - 1u);
         uint8_t height = s_balls.height[lane];
-        uint8_t ball = tiles_bounce_ball_height(&s_balls, lane);
         float lr, lg, lb;
         lane_rgb(lane, &lr, &lg, &lb);
-        bool landing = s_landed_ms[lane] != 0u && now - s_landed_ms[lane] < BOUNCE_LAND_FLASH_MS;
+        float ball[TILES_BOUNCE_MAX_HEIGHT + 2u] = {0}; /* by level, 1 = floor */
+        if (height != 0u) {
+            float pos = 1.0f + ball_y(lane, frac);
+            uint8_t lo = (uint8_t)pos;
+            float w = pos - (float)lo;
+            ball[lo] += cosf(w * BOUNCE_PI * 0.5f);
+            ball[lo + 1u] += sinf(w * BOUNCE_PI * 0.5f);
+        }
+        float flash = 0.0f;
+        if (height != 0u && s_landed_ms[lane] != 0u && now - s_landed_ms[lane] < BOUNCE_LAND_FLASH_MS) {
+            flash = 1.0f - (float)(now - s_landed_ms[lane]) / (float)BOUNCE_LAND_FLASH_MS;
+        }
         for (uint8_t row = 1u; row <= TILES_GRID_MAX_ROW; row++) {
             uint8_t pad = board_pad_for_row_col(row, col);
             uint8_t level_h = (uint8_t)(TILES_GRID_MAX_ROW + 1u - row);
-            float r = 0.0f, g = 0.0f, b = 0.0f;
             if (end_flash) {
-                r = 1.0f;
-                b = 1.0f; /* the end of the lanes: pink */
-            } else if (height != 0u && ball == level_h && level_h == 1u && landing) {
-                r = g = b = 1.0f;
-            } else if (height != 0u && ball == level_h) {
-                r = lr;
-                g = lg;
-                b = lb;
-            } else if (height != 0u && level_h == height) {
-                r = lr * BOUNCE_HEIGHT_LEVEL;
-                g = lg * BOUNCE_HEIGHT_LEVEL;
-                b = lb * BOUNCE_HEIGHT_LEVEL;
-            } else if (height == 0u && level_h == 1u) {
-                r = lr * BOUNCE_EMPTY_LANE_LEVEL;
-                g = lg * BOUNCE_EMPTY_LANE_LEVEL;
-                b = lb * BOUNCE_EMPTY_LANE_LEVEL;
+                frame_set(pad, 1.0f, 0.0f, 1.0f); /* the end of the lanes: pink */
+                continue;
             }
-            tiles_lighting_set_standby_pad_rgb(pad, r, g, b);
+            float level = 0.0f;
+            if (height != 0u && level_h == height) {
+                level = BOUNCE_HEIGHT_LEVEL;
+            } else if (height == 0u && level_h == 1u) {
+                level = BOUNCE_EMPTY_LANE_LEVEL;
+            }
+            level = fmaxf(level, fminf(ball[level_h], 1.0f));
+            float r = lr * level, g = lg * level, b = lb * level;
+            if (level_h == 1u && flash > 0.0f) {
+                r += (1.0f - r) * flash;
+                g += (1.0f - g) * flash;
+                b += (1.0f - b) * flash;
+            }
+            frame_set(pad, r, g, b);
         }
+    }
+}
+
+/* Sends the frame's biggest changes (see BOUNCE_PAD_WRITES_PER_SCAN). */
+static void commit_frame(uint32_t now) {
+    if (now - s_last_render_ms > BOUNCE_REPAINT_AFTER_MS) {
+        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+            s_sent[i][0] = s_sent[i][1] = s_sent[i][2] = -1.0f;
+        }
+    }
+    s_last_render_ms = now;
+    for (uint8_t n = 0; n < BOUNCE_PAD_WRITES_PER_SCAN; n++) {
+        uint8_t best = TILES_NUM_PADS;
+        float best_change = BOUNCE_PAD_CHANGE_MIN;
+        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+            float change = fmaxf(fabsf(s_frame[i][0] - s_sent[i][0]),
+                                 fmaxf(fabsf(s_frame[i][1] - s_sent[i][1]), fabsf(s_frame[i][2] - s_sent[i][2])));
+            if (change >= best_change) {
+                best_change = change;
+                best = i;
+            }
+        }
+        if (best == TILES_NUM_PADS) {
+            break;
+        }
+        tiles_lighting_set_standby_pad_rgb((uint8_t)(best + 1u), s_frame[best][0], s_frame[best][1], s_frame[best][2]);
+        s_sent[best][0] = s_frame[best][0];
+        s_sent[best][1] = s_frame[best][1];
+        s_sent[best][2] = s_frame[best][2];
     }
 }
 
@@ -406,6 +512,7 @@ void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led,
     } else {
         render_lanes(now);
     }
+    commit_frame(now);
     for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
         float level = 0.0f;
         if (col == TILES_CIRCLE_BUTTON_COL) {

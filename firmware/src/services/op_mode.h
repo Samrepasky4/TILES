@@ -86,6 +86,12 @@ void tiles_op_mode_init(bool crash_recovered);
  * anything that reads the ownership accessors below. */
 void tiles_op_mode_scan(void);
 
+/* Steps playback (sequencer lanes, Song tracks, drums, Bouncing notes) on
+ * the clock, between the scans: main.c calls it after its slower services
+ * (with fresh USB, MIDI input and clock), so a Clock arriving mid-pass is
+ * played within a fraction of a pass. */
+void tiles_op_mode_playback_tick(void);
+
 /* True while a menu is open or the mode draws the whole grid itself
  * (sequencer, Ableton, Song except while capturing or picking a pitch).
  * Other grid owners (games, expression menu, transpose, standby) are

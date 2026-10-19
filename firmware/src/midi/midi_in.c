@@ -26,6 +26,8 @@
  * under 16 bytes; a sender that never sends 0xF7 can't grow this. */
 #define MIDI_IN_SYSEX_MAX 64u
 
+#define MIDI_SONG_POSITION 0xF2u
+static tiles_midi_in_song_position_callback_t s_song_position_callback;
 static tiles_midi_in_realtime_callback_t s_realtime_callbacks[TILES_MIDI_IN_MAX_CALLBACKS];
 static uint8_t s_realtime_callback_count;
 static tiles_midi_in_sysex_callback_t s_sysex_callbacks[TILES_MIDI_IN_MAX_CALLBACKS];
@@ -91,6 +93,10 @@ void tiles_midi_in_init(void) {
         parser_reset(&s_parsers[i]);
     }
     s_rt_owner = -1;
+}
+
+void tiles_midi_in_set_song_position_callback(tiles_midi_in_song_position_callback_t callback) {
+    s_song_position_callback = callback;
 }
 
 bool tiles_midi_in_register_realtime_callback(tiles_midi_in_realtime_callback_t callback) {
@@ -209,6 +215,12 @@ static void feed_byte(midi_source_t source, uint8_t byte, uint32_t now_ms) {
                 p->cv_status = byte;
                 p->cv_data_needed = channel_voice_data_len(byte);
                 p->cv_data_count = 0u;
+            } else if (byte == MIDI_SONG_POSITION) {
+                /* Collected like a channel message (two data bytes), then
+                 * dropped: System Common has no running status. */
+                p->cv_status = byte;
+                p->cv_data_needed = 2u;
+                p->cv_data_count = 0u;
             } else {
                 /* System Common (0xF1-0xF7) cancels running status. A stray 0xF7 with no
                  * open frame lands here too; cancelling is all there is to do. */
@@ -222,7 +234,14 @@ static void feed_byte(midi_source_t source, uint8_t byte, uint32_t now_ms) {
         }
         p->cv_data[p->cv_data_count++] = byte;
         if (p->cv_data_count >= p->cv_data_needed) {
-            dispatch_channel_voice(p, now_ms);
+            if (p->cv_status == MIDI_SONG_POSITION) {
+                if (s_song_position_callback != NULL && realtime_source_allowed(source, now_ms)) {
+                    s_song_position_callback((uint16_t)(p->cv_data[0] | ((uint16_t)p->cv_data[1] << 7)), now_ms);
+                }
+                p->cv_status = 0u;
+            } else {
+                dispatch_channel_voice(p, now_ms);
+            }
             /* Ready for the next message under the same running status. */
             p->cv_data_count = 0u;
         }

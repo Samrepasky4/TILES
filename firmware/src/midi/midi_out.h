@@ -28,6 +28,13 @@
 
 #include "midi_ports.h"
 
+/* Messages sent between begin and end (nestable) leave USB in one transfer
+ * instead of a pass apart: wrap anything that sounds at the same moment (a
+ * chord, a step's drums, a note's setup and Note-On). midi_out.c has the
+ * details. End right after the burst: nothing goes out until then. */
+void tiles_midi_out_batch_begin(void);
+void tiles_midi_out_batch_end(void);
+
 #define TILES_MIDI_MPE_MASTER_CHANNEL 0u       /* status nibble; 0 = MIDI channel 1 */
 #define TILES_MIDI_MPE_FIRST_MEMBER_CHANNEL 1u /* status nibble; 1 = MIDI channel 2 */
 /* The zone size is not fixed at 15: ch 10-16 are fixed parts or GM drums,

@@ -64,6 +64,15 @@ static void tiles_power_recover_haptics_and_buttons(tiles_power_state_t new_stat
     printf("[power] recovered haptics/buttons hardware after a power-mode change\n");
 }
 
+/* See the main loop. */
+static void timing_tick(void) {
+    tiles_debug_trace('t');
+    tud_task();
+    tiles_midi_in_scan();
+    tiles_midi_clock_scan();
+    tiles_op_mode_playback_tick();
+}
+
 int main(void) {
     /* Read once, first thing (a scratch-register read, safe before any init),
      * and reused for every skippable boot step. Each boot printf can block up
@@ -230,6 +239,10 @@ int main(void) {
      * so a saved "MPE off" announces a withdrawn zone. */
     tiles_expression_announce_mpe_zone();
 
+    /* Between the slower services: USB, MIDI input, the clock and playback
+     * again, so a Clock arriving mid-pass is stepped on (and a USB transfer
+     * that finished is followed by the next one) within a fraction of a
+     * pass, not at the next one (tiles_op_mode_playback_tick()). */
     while (true) {
         tiles_loop_stats_mark(time_us_32());
         /* Must run every pass: it IS the USB stack (control transfers, CDC and
@@ -294,6 +307,7 @@ int main(void) {
         tiles_octave_control_scan();
         tiles_debug_trace('u');
         tiles_touch_scan();
+        timing_tick();
         tiles_debug_trace('d');
         tiles_pedal_scan();
         tiles_debug_trace('C');
@@ -323,8 +337,10 @@ int main(void) {
         }
         tiles_debug_trace('L');
         tiles_lighting_service();
+        timing_tick();
         tiles_debug_trace('H');
         tiles_hall_scan();
+        timing_tick();
         /* Non-blocking. */
         tiles_debug_trace('c');
         tiles_calibration_scan();
@@ -334,6 +350,7 @@ int main(void) {
         /* After expression, which triggers/updates/stops the envelopes. */
         tiles_debug_trace('K');
         tiles_haptics_scan();
+        timing_tick();
         /* End of pass in the debug trace; push it to the host. No-ops unless
          * debug mode is on. */
         tiles_debug_trace_str("\r\n");

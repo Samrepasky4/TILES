@@ -9909,3 +9909,54 @@ change. Search it by file or feature name.
   - test_midi_clock.c: the lead (through 6 ms before a 21 ms Clock, at most
     one ahead, no double count, never back, 0 = off) and the generator's
     tempo.
+- **Timing pass: one USB transfer per moment, playback between scans and
+  under menus, Song Position Pointer; menu, sequencer and Bouncing notes
+  looks (0.8.7, 2026-10-19).** Asked: "catch timing implementation for MIDI
+  clock, Live and anything else, make things as tight as possible"; then
+  "the steps on the step sequencer should be red matching the underglow and
+  mode colour; bouncing notes haptics are still felt if we switch modes;
+  the visuals for bouncing notes should feel more smooth"; then "make
+  active modes flash twice and pause when the mode is playing; the selected
+  mode keeps the pulse".
+  - USB: TinyUSB starts a transfer on the first packet written; packets
+    written right after wait for it to finish and for the next tud_task()
+    (about a pass, ~2 ms). So a chord, a step's drums, Bouncing notes'
+    landings and even every MPE note (pitch-bend centre, pressure, then the
+    Note-On) went out spread over two transfers. midi_out.h's batch
+    (begin/end) holds channel messages and hands them to TinyUSB's stream
+    write in one go (one flush); used for playback steps, the pad note-on
+    (with its setup), Prism and Duet chords, capture notes and the CC
+    broadcast. Non-channel messages flush the batch first (order kept); a
+    host stall mid-message marks the stream path unsafe until remount.
+  - Playback ticks: every clock-driven part (lanes, Song tracks, drums,
+    Bouncing notes) steps in advance_playback(), from the scan and from
+    tiles_op_mode_playback_tick(), which main.c runs (with tud_task, MIDI
+    in and the clock) after touch, lighting, Hall and haptics: a Clock that
+    lands mid-pass is played within a fraction of a pass. The scan shares
+    the start edge a tick consumed (s_tick_start_edge). Drum saves keep
+    "right after a step starts" via a sticky s_step_entered.
+  - Playback no longer freezes under the Feel menu, transpose or the
+    standby animation (op_mode's scan returned before the clock, so
+    background lanes stopped and then jumped ahead when they closed). Games
+    and deep sleep still pause it. Sequencer and Bouncing notes haptics are
+    felt only while their grid is on the pads.
+  - Song Position Pointer (0xF2, midi_in.c, from the clock's port only): a
+    Continue after one (Live playing from mid-song) starts on the next
+    Clock at that position, the counter's beat phase matching, and
+    clock.song_pulse tells every part where it is: the sequencer's lanes,
+    the drum player (tiles_drum_player_start_at()), Song tracks (which now
+    also re-anchor on a Start at all) and Bouncing notes' eighth grid land
+    where they'd be had it played from the top. A plain Continue still
+    resumes. Tests: test_midi_in (SPP from USB/DIN, not from another
+    port), test_midi_clock (positioned Continue, Start ignoring a
+    position), test_drum_pattern (start_at).
+  - Mode menu: a mode playing in the background blinks twice and pauses in
+    its colour (the diamond's record-armed rhythm, double_blink_on());
+    the current mode keeps its white pulse.
+  - Sequencer steps in the mode's scarlet: armed at 0.3 (tints kept), empty
+    in-loop steps at 0.1 (they were faint orange).
+  - Bouncing notes: balls glide on a parabola between steps (timed by the
+    clock between pulses), crossfaded across two pads; the landing flash
+    fades over 140 ms. A pad write is ~0.7 ms, so the frame goes out at most
+    two pads per scan, biggest change first (a full repaint at once held
+    the loop ~17 ms).

@@ -34,9 +34,17 @@
 static uint32_t s_pulse_count;
 static bool s_running;
 static bool s_start_edge;
-/* An external Start came in; playback begins on the next Clock (MIDI's
- * rule: the first Clock after a Start is the downbeat). */
+/* An external Start (or a positioned Continue) came in; playback begins on
+ * the next Clock (MIDI's rule: the first Clock after a Start is the
+ * downbeat), at s_pending_position pulses into the song. */
 static bool s_start_pending;
+static uint32_t s_pending_position;
+/* A Song Position Pointer since the last Start/Continue: where the next
+ * Continue resumes, in pulses (6 per sixteenth). */
+static bool s_spp_valid;
+static uint32_t s_spp_pulses;
+/* The pulse count at the song's position 0 (song_pulse in the state). */
+static uint32_t s_song_origin;
 static bool s_source_is_tap_tempo;
 /* Whether external clock was active as of the last scan (edge detection). */
 static bool s_external_was_active;
@@ -82,6 +90,7 @@ static uint32_t s_visible_count;
 
 /* Forward-declared for registration in init. */
 static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms);
+static void midi_clock_on_song_position(uint16_t sixteenths, uint32_t now_ms);
 
 void tiles_midi_clock_init(void) {
     s_pulse_count = 0u;
@@ -104,6 +113,32 @@ void tiles_midi_clock_init(void) {
     /* Real-Time bytes arrive via midi/midi_in.h, the single reader of MIDI
      * input. */
     tiles_midi_in_register_realtime_callback(midi_clock_on_realtime_byte);
+    tiles_midi_in_set_song_position_callback(midi_clock_on_song_position);
+    s_start_pending = false;
+    s_spp_valid = false;
+    s_song_origin = 0u;
+}
+
+static void catch_up_to_visible(void);
+
+/* Waits for the next Clock to start there, `position` pulses into the song,
+ * with the counter set so that Clock's count has the song position's phase
+ * in the beat (pulse_count % 24 matches the DAW's beats). Stopped
+ * meanwhile, so nothing steps across the jump. */
+static void start_on_next_clock(uint32_t position) {
+    s_running = false;
+    s_start_pending = true;
+    s_pending_position = position;
+    catch_up_to_visible();
+    uint32_t before = (position + 23u) % 24u; /* the count just before it */
+    s_pulse_count += (before + 24u - s_pulse_count % 24u) % 24u;
+    s_clock_us_count = 0u; /* a fresh pace from there */
+}
+
+static void midi_clock_on_song_position(uint16_t sixteenths, uint32_t now_ms) {
+    (void)now_ms;
+    s_spp_valid = true;
+    s_spp_pulses = (uint32_t)sixteenths * 6u;
 }
 
 bool tiles_midi_clock_is_running(void) {
@@ -262,6 +297,7 @@ void tiles_midi_clock_register_tap(uint32_t now_ms) {
         /* Same contract as a real Start, so the sequencer resets to step 0. */
         s_running = true;
         s_start_edge = true;
+        s_song_origin = s_pulse_count;
     }
 }
 
@@ -283,6 +319,7 @@ bool tiles_midi_clock_restart(void) {
      * pulse is one pulse interval from now. */
     catch_up_to_visible();
     s_pulse_count += (24u - s_pulse_count % 24u) % 24u;
+    s_song_origin = s_pulse_count;
     s_next_virtual_pulse_due_us = now_us() + pulse_us_from_beat_ms(s_tap_interval_ms);
     s_running = true;
     s_start_edge = true;
@@ -307,10 +344,11 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         if (s_start_pending) {
-            /* The downbeat (a beat boundary of the counter, see Start). */
+            /* The downbeat, or the positioned Continue's first Clock. */
             s_start_pending = false;
             s_running = true;
             s_start_edge = true;
+            s_song_origin = s_pulse_count - s_pending_position;
         }
         /* One beat of real pulses done: measure it, bounded to ~15-1200 BPM so a
          * stale timestamp from long ago (Start doesn't reset it) can't produce
@@ -334,17 +372,24 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
          * that Clock lands on a beat boundary (pulse_count % 24 == 0 on the
          * DAW's beats), which the quantized starts and the beat flash read;
          * stopped meanwhile, so nothing steps across the jump. */
-        s_running = false;
-        s_start_pending = true;
-        catch_up_to_visible();
-        s_pulse_count += 23u - s_pulse_count % 24u;
-        s_clock_us_count = 0u; /* a fresh pace from the downbeat */
+        s_spp_valid = false; /* a Start is always the top */
+        start_on_next_clock(0u);
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         break;
     case MIDI_REALTIME_CONTINUE:
-        /* Resume where playback was; no start_edge (Continue isn't a reset). */
         printf("[midi_clock] real Continue (0xFB) received, pulse_count=%lu\n", (unsigned long)s_pulse_count);
+        if (s_spp_valid) {
+            /* After a Song Position Pointer (a DAW playing from mid-song): start
+             * there, like a Start at that position, so steps land where they
+             * would have if it had played from the top. */
+            s_spp_valid = false;
+            start_on_next_clock(s_spp_pulses);
+            s_last_external_pulse_ms = now_ms;
+            s_ever_seen_external_pulse = true;
+            break;
+        }
+        /* No position: resume where playback was; no start_edge. */
         s_start_pending = false;
         s_running = true;
         s_clock_us_count = 0u;
@@ -383,9 +428,11 @@ void tiles_midi_clock_scan(void) {
                (double)s_external_ms_per_beat);
     }
     if (external_active_now && !s_external_was_active && !s_start_pending) {
-        /* (A Start waiting for its downbeat starts there instead.) */
+        /* (A Start waiting for its downbeat starts there instead.) The song
+         * position isn't known: it counts from here. */
         s_running = true;
         s_start_edge = true;
+        s_song_origin = s_pulse_count;
     }
     if (!external_active_now) {
         s_start_pending = false; /* a Start whose Clock never came */
@@ -411,8 +458,10 @@ void tiles_midi_clock_scan(void) {
 }
 
 tiles_midi_clock_state_t tiles_midi_clock_get_state(void) {
+    uint32_t visible = visible_pulse_count();
     tiles_midi_clock_state_t state = {
-        .pulse_count = visible_pulse_count(),
+        .pulse_count = visible,
+        .song_pulse = visible - s_song_origin,
         .running = s_running,
         .start_edge = s_start_edge,
         .source_is_tap_tempo = s_source_is_tap_tempo,

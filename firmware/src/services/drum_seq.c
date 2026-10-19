@@ -103,7 +103,9 @@ static bool s_storage;
 static bool s_dirty;
 static uint32_t s_changed_ms;
 static uint32_t s_retry_after_ms;
-static bool s_step_entered; /* the player started a step this scan */
+/* The player started a step since the last persist_service() (advance runs
+ * more often than the scan). */
+static bool s_step_entered;
 static uint32_t s_saves;
 static uint16_t s_saved_bytes;
 static uint8_t s_blob[TILES_LOG_MAX_PAYLOAD];
@@ -343,8 +345,16 @@ void tiles_drum_seq_advance(tiles_midi_clock_state_t clock, bool shown) {
     s_clock_running = clock.running;
     uint32_t started = s_player.step_started_pulse;
     uint8_t step = s_player.step;
-    tiles_drum_player_advance(&s_player, &s_pattern, &s_out, clock.pulse_count, clock.running, clock.start_edge);
-    s_step_entered = s_player.step_started_pulse != started || s_player.step != step;
+    if (clock.start_edge && s_player.running) {
+        /* At the song position, so a DAW playing from mid-song lands right. */
+        tiles_drum_player_start_at(&s_player, &s_pattern, &s_out, clock.pulse_count, clock.song_pulse);
+    } else {
+        tiles_drum_player_advance(&s_player, &s_pattern, &s_out, clock.pulse_count, clock.running,
+                                  clock.start_edge);
+    }
+    if (s_player.step_started_pulse != started || s_player.step != step) {
+        s_step_entered = true;
+    }
 }
 
 /* ---- saving ---- */
@@ -359,6 +369,8 @@ static bool any_pad_touched(void) {
 }
 
 void tiles_drum_seq_persist_service(uint32_t now, bool clock_running) {
+    bool step_entered = s_step_entered;
+    s_step_entered = false;
     if (!s_storage) {
         return;
     }
@@ -374,7 +386,7 @@ void tiles_drum_seq_persist_service(uint32_t now, bool clock_running) {
         (s_retry_after_ms != 0u && (int32_t)(now - s_retry_after_ms) < 0) || any_pad_touched()) {
         return;
     }
-    if (clock_running && s_player.running && (!s_step_entered || tiles_drum_player_repeats_pending(&s_player))) {
+    if (clock_running && s_player.running && (!step_entered || tiles_drum_player_repeats_pending(&s_player))) {
         return; /* playing: right after a step starts, nothing else due */
     }
     bool truncated = false;
