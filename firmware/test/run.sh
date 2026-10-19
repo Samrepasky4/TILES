@@ -42,6 +42,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_strike_settle.c src/services/strike_settle.c -o /tmp/sentia_tiles_test_strike_settle
 /tmp/sentia_tiles_test_strike_settle
 
+# MIDI clock: an external Start begins on its first Clock, on a beat boundary.
+cc -std=c11 -Wall -Wextra -Wpedantic -Itest/stubs -Isrc/services -Isrc/midi test/test_midi_clock.c src/services/midi_clock.c -lm -o /tmp/sentia_tiles_test_midi_clock
+/tmp/sentia_tiles_test_midi_clock | grep -v '^\[midi_clock\]' # its own Start/Stop logging
+
 # Flash store (power-cut simulation) and the settings table on top of it.
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/storage test/test_kv_store.c src/storage/kv_store.c -o /tmp/sentia_tiles_test_kv_store
 /tmp/sentia_tiles_test_kv_store

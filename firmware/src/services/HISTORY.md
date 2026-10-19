@@ -9853,3 +9853,35 @@ change. Search it by file or feature name.
     and then pushes on within 20 ms (now read at the stall). Hard hits now
     go about 15-20 ms sooner. Expression.h now owns the full-scale overshoot
     (TILES_EXPRESSION_STRIKE_OVERSHOOT_FULL_SCALE) for both callers.
+- **Following a DAW's clock: Start on the downbeat, beats aligned, Bouncing
+  notes quantized (0.8.5, 2026-10-18).** Reported after 0.8.4: "there's
+  still a ~12 ms delay between notes and clock, or notes and recorded MIDI
+  in Ableton".
+  - Measured/known budget on the board: an incoming Clock steps the
+    sequencers in the same pass and TinyUSB starts the transfer on write
+    (about 1-3 ms with a ~2.1 ms pass); a struck pad is ~4 ms of MPR121
+    filtering plus the strike settle (strike_settle.h) plus a pass. The
+    Live set at the time: 64-sample buffer at 48 kHz (5.67 ms overall
+    latency; it had been 256 / 13.7 ms just before), MIDI Clock Sync Delay
+    0 on both TILES ports, Sync on for both TILES outputs (MIDI and DAW;
+    midi_in takes one). So the constant part left is mostly host-side
+    (Live's clock output vs. its recording); Live's per-port MIDI Clock
+    Sync Delay (negative) and Track Delay are the tools for it.
+  - Found and fixed on the way (whole-pulse offsets, ~21 ms at 120 BPM):
+    - An external Start started playback at the 0xFA itself, so when the
+      Start arrived a pass before its first Clock every later step came one
+      Clock early. MIDI's rule now: the first Clock after a Start is the
+      downbeat (midi_clock.c s_start_pending).
+    - The pulse counter was never realigned on an external Start, so after
+      a second Start pulse_count % 24 no longer matched the DAW's beats:
+      quantized "+" starts and the beat flash were off by up to 23 pulses.
+      A Start now sets the counter so its downbeat Clock lands on a
+      multiple of 24 (stopped meanwhile, so nothing steps across the jump).
+    - Bouncing notes' "+" under an external clock dropped the balls at the
+      press, so their grid sat wherever the press fell. They now drop on
+      the clock's next beat (tiles_bounce_mode_start_on_beat()).
+  - test/test_midi_clock.c (new) covers Start alone / with its Clock in the
+    same pass, the alignment, Continue, Stop cancelling a waiting Start, and
+    a Start with no Clock.
+  - Not handled yet: Song Position Pointer (Live sends SPP + Continue when
+    playing from mid-song; the board then resumes on its own count).

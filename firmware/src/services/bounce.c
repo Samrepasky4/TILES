@@ -19,6 +19,7 @@
 #define BOUNCE_VISIBLE_LANES 6u
 #define BOUNCE_MAX_OFFSET (TILES_BOUNCE_LANES - BOUNCE_VISIBLE_LANES)
 #define BOUNCE_PULSES_PER_STEP 12u /* an eighth at 24 pulses per beat (sixteenths were too busy) */
+#define BOUNCE_PULSES_PER_BEAT 24u
 /* Lane 1's note before the key and octave: C3. */
 #define BOUNCE_BASE_NOTE 48u
 #define BOUNCE_PI 3.14159265358979323846f
@@ -50,6 +51,8 @@ static uint8_t s_sounding[TILES_BOUNCE_LANES]; /* note playing per lane, 0 = non
 static uint32_t s_landed_ms[TILES_BOUNCE_LANES];
 static uint32_t s_end_flash_ms;
 static bool s_rewound;
+/* "+" under an external clock: the balls drop on its next beat. */
+static bool s_start_on_beat;
 static bool s_prev_touched[TILES_NUM_PADS];
 static uint32_t s_touch_started_ms[TILES_NUM_PADS]; /* 0 = not a tap in progress */
 /* A lane's picked note, 0 = none (it follows the scale, lane_note()). */
@@ -181,8 +184,15 @@ void tiles_bounce_mode_start(bool from_floor) {
     }
 }
 
+void tiles_bounce_mode_start_on_beat(void) {
+    if (!s_running) {
+        s_start_on_beat = true;
+    }
+}
+
 void tiles_bounce_mode_pause(void) {
     s_running = false;
+    s_start_on_beat = false;
     tiles_bounce_mode_end_all_notes();
 }
 
@@ -206,6 +216,16 @@ void tiles_bounce_mode_scroll(int8_t direction) {
 }
 
 void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock) {
+    if (s_start_on_beat && clock.running) {
+        /* s_step_pulse follows the clock while stopped (below), so a beat
+         * boundary after it has passed since the last scan. */
+        uint32_t beat = clock.pulse_count - clock.pulse_count % BOUNCE_PULSES_PER_BEAT;
+        if (beat > s_step_pulse) {
+            s_start_on_beat = false;
+            tiles_bounce_mode_start(true);
+            s_step_pulse = beat;
+        }
+    }
     if (!s_running || !clock.running) {
         s_step_pulse = clock.pulse_count; /* no catching up after a pause */
         return;

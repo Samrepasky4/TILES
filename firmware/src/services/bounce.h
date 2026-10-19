@@ -18,7 +18,9 @@
  *                 pink at either end.
  *   "-" / "+"     stop / start as in the sequencer ("-" twice drops every
  *                 ball back to its top; "+" with no clock coming in starts
- *                 at once and restarts the clock).
+ *                 at once and restarts the clock; following a DAW's clock,
+ *                 every ball lands on its next beat, so they bounce on its
+ *                 grid).
  *   circle        tap tempo.
  *   square        the Feel menu only (no pitch bend toggle here).
  *
@@ -60,6 +62,8 @@ void tiles_bounce_mode_render(uint32_t now_ms, float beat_flash, float diamond_l
  * one) and bounces from there; start(false): carry on. */
 bool tiles_bounce_mode_is_running(void);
 void tiles_bounce_mode_start(bool from_floor);
+/* "+" under an external clock: start(true) on the clock's next beat. */
+void tiles_bounce_mode_start_on_beat(void);
 void tiles_bounce_mode_pause(void);
 void tiles_bounce_mode_rewind(void);
 /* Ends any sounding notes (a panic, or a mode that needs the channel). */

@@ -2887,8 +2887,9 @@ static void handle_transport_and_length(uint32_t now_ms) {
             tiles_bounce_mode_start(true);
             (void)tiles_midi_clock_restart();
         } else if (bounce_active && !s_plus_used_as_combo) {
-            /* Following an external clock: start with it (needs it running). */
-            tiles_bounce_mode_start(!tiles_bounce_mode_is_running());
+            /* Following an external clock: the balls drop on its next beat, on
+             * its grid (needs it running). */
+            tiles_bounce_mode_start_on_beat();
             tiles_midi_clock_set_running(true);
         } else if (drum_active && !s_plus_used_as_combo && !tiles_midi_clock_external_active(now_ms)) {
             /* Drums, no clock coming in: step 1 now, the clock restarted with it

@@ -34,6 +34,9 @@
 static uint32_t s_pulse_count;
 static bool s_running;
 static bool s_start_edge;
+/* An external Start came in; playback begins on the next Clock (MIDI's
+ * rule: the first Clock after a Start is the downbeat). */
+static bool s_start_pending;
 static bool s_source_is_tap_tempo;
 /* Whether external clock was active as of the last scan (edge detection). */
 static bool s_external_was_active;
@@ -64,6 +67,7 @@ void tiles_midi_clock_init(void) {
     s_pulse_count = 0u;
     s_running = false;
     s_start_edge = false;
+    s_start_pending = false;
     s_source_is_tap_tempo = false;
     s_last_external_pulse_ms = 0u;
     s_ever_seen_external_pulse = false;
@@ -214,6 +218,12 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
         s_pulse_count++;
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
+        if (s_start_pending) {
+            /* The downbeat (a beat boundary of the counter, see Start). */
+            s_start_pending = false;
+            s_running = true;
+            s_start_edge = true;
+        }
         /* One beat of real pulses done: measure it, bounded to ~15-1200 BPM so a
          * stale timestamp from long ago (Start doesn't reset it) can't produce
          * nonsense. */
@@ -229,20 +239,30 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
         break;
     case MIDI_REALTIME_START:
         printf("[midi_clock] real Start (0xFA) received, pulse_count=%lu\n", (unsigned long)s_pulse_count);
-        s_running = true;
-        s_start_edge = true;
+        /* Playback starts on the next Clock, the downbeat: step 1 then, and
+         * every later step a whole number of steps after it, on the DAW's grid
+         * (starting here put every step after the first one Clock early when
+         * the Start arrived a pass before its Clock). The counter is set so
+         * that Clock lands on a beat boundary (pulse_count % 24 == 0 on the
+         * DAW's beats), which the quantized starts and the beat flash read;
+         * stopped meanwhile, so nothing steps across the jump. */
+        s_running = false;
+        s_start_pending = true;
+        s_pulse_count += 23u - s_pulse_count % 24u;
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         break;
     case MIDI_REALTIME_CONTINUE:
         /* Resume where playback was; no start_edge (Continue isn't a reset). */
         printf("[midi_clock] real Continue (0xFB) received, pulse_count=%lu\n", (unsigned long)s_pulse_count);
+        s_start_pending = false;
         s_running = true;
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         break;
     case MIDI_REALTIME_STOP:
         printf("[midi_clock] real Stop (0xFC) received, pulse_count=%lu\n", (unsigned long)s_pulse_count);
+        s_start_pending = false;
         s_running = false;
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
@@ -271,9 +291,13 @@ void tiles_midi_clock_scan(void) {
         printf("[midi_clock] external clock %s (ms_per_beat=%.1f)\n", external_active_now ? "ACQUIRED" : "LOST",
                (double)s_external_ms_per_beat);
     }
-    if (external_active_now && !s_external_was_active) {
+    if (external_active_now && !s_external_was_active && !s_start_pending) {
+        /* (A Start waiting for its downbeat starts there instead.) */
         s_running = true;
         s_start_edge = true;
+    }
+    if (!external_active_now) {
+        s_start_pending = false; /* a Start whose Clock never came */
     }
     s_external_was_active = external_active_now;
 
