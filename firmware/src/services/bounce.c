@@ -9,7 +9,6 @@
 #include "haptics.h"
 #include "lighting.h"
 #include "midi_clock.h"
-#include "strike_settle.h"
 #include "midi_channels.h"
 #include "midi_out.h"
 #include "note_map.h"
@@ -88,28 +87,23 @@ static uint8_t s_pick_lane = BOUNCE_NOT_PICKING;
  * top), the strike adds up to BOUNCE_THROW_FORCE_PADS (a hard tap on the
  * top row flies off the grid and comes back). Landing velocity follows the
  * height it fell from, full at BOUNCE_IMPACT_FULL pads. A note lasts until
- * the lane lands again, an eighth at most. A square click shorter than
- * BOUNCE_SQUARE_CLICK_MS, no other button, toggles it. First guesses. */
+ * the lane lands again, an eighth at most. A square click toggles it
+ * (expression_control.c sees the click, op_mode.c passes it here). First
+ * guesses. */
 #define BOUNCE_THROW_FORCE_PADS 2.0f
 #define BOUNCE_THROW_MIN_APEX 0.5f
 #define BOUNCE_IMPACT_FULL 5.0f
 #define BOUNCE_GRAVITY_MIN_VELOCITY 30.0f
-#define BOUNCE_SQUARE_CLICK_MS 600u
 static bool s_gravity;
 static tiles_gravity_t s_grav;
 static float s_last_throw[TILES_BOUNCE_LANES]; /* "+" throws them again */
 static uint32_t s_grav_last_ms;
 static uint32_t s_note_off_ms[TILES_BOUNCE_LANES]; /* 0 = none due */
-/* A throw's strike, per pad (as melodic pads measure one). */
+/* A throw's strength, per pad: how far it was pressed and how fast it got
+ * past the strike depth (expression's velocity curve). */
 static float s_peak_depth[TILES_NUM_PADS];
 static bool s_crossed[TILES_NUM_PADS];
-static bool s_thrown[TILES_NUM_PADS];
 static uint32_t s_crossed_ms[TILES_NUM_PADS];
-static uint32_t s_last_sample_ms[TILES_NUM_PADS];
-static tiles_strike_settle_t s_settle[TILES_NUM_PADS];
-static bool s_square_was_held;
-static bool s_square_with_other;
-static uint32_t s_square_down_ms;
 
 static uint32_t now_ms(void) {
     return to_ms_since_boot(get_absolute_time());
@@ -256,6 +250,10 @@ static void set_gravity(bool on) {
     gravity_catch_all();
     s_gravity = on;
     s_grav_last_ms = now_ms();
+}
+
+void tiles_bounce_mode_toggle_gravity(void) {
+    set_gravity(!s_gravity);
 }
 
 void tiles_bounce_mode_init(void) {
@@ -438,27 +436,9 @@ static void handle_pick(void) {
 /* A tap (lifted before BOUNCE_PICK_HOLD_MS) drops the column's ball from
  * that pad's height, or stops it if it's already there; it acts on the
  * lift, so a hold changes nothing but the pitch. */
-/* Square click (alone, short): Real gravity on/off. */
-static void handle_square(uint32_t now) {
-    bool held = tiles_button_is_pressed(TILES_SQUARE_BUTTON_ID);
-    bool other = tiles_button_is_pressed(TILES_CIRCLE_BUTTON_ID) || tiles_button_is_pressed(TILES_DIAMOND_BUTTON_ID) ||
-                 tiles_button_is_pressed(TILES_TRIANGLE_BUTTON_ID) || tiles_button_is_pressed(TILES_MINUS_BUTTON_ID) ||
-                 tiles_button_is_pressed(TILES_PLUS_BUTTON_ID);
-    if (held && !s_square_was_held) {
-        s_square_down_ms = now;
-        s_square_with_other = other;
-    } else if (held && other) {
-        s_square_with_other = true;
-    } else if (!held && s_square_was_held && !s_square_with_other && now - s_square_down_ms < BOUNCE_SQUARE_CLICK_MS) {
-        set_gravity(!s_gravity);
-    }
-    s_square_was_held = held;
-}
-
-/* Real gravity's pads: a touch throws the column's ball as soon as the
- * strike is measured (strike_settle.h), harder = higher; a light tap that
- * never presses throws it from the pad's row on the lift. Holding still
- * opens the pitch pick. */
+/* Real gravity's pads: a tap throws the column's ball when it lifts, as
+ * high as the pad's row plus how hard it was hit; a hold picks the pitch
+ * and throws nothing. */
 static void handle_gravity_pads(uint32_t now) {
     for (uint8_t row = 1u; row <= TILES_GRID_MAX_ROW; row++) {
         for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
@@ -468,19 +448,12 @@ static void handle_gravity_pads(uint32_t now) {
             bool was = s_prev_touched[i];
             s_prev_touched[i] = touched;
             uint8_t lane = (uint8_t)(s_offset + col - 1u);
-            float base = (float)(TILES_GRID_MAX_ROW - row); /* pads above the floor */
             float depth = (float)tiles_hall_get_depth(pad);
-            uint32_t sample_ms = tiles_hall_get_sample(pad).sample_time_ms;
             if (touched && !was) {
                 s_touch_started_ms[i] = now | 1u;
                 s_peak_depth[i] = depth;
-                s_thrown[i] = false;
                 s_crossed[i] = depth >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA;
                 s_crossed_ms[i] = now;
-                s_last_sample_ms[i] = sample_ms;
-                if (s_crossed[i]) {
-                    tiles_strike_settle_begin(&s_settle[i], depth, now);
-                }
             } else if (touched) {
                 if (depth > s_peak_depth[i]) {
                     s_peak_depth[i] = depth;
@@ -488,33 +461,21 @@ static void handle_gravity_pads(uint32_t now) {
                 if (!s_crossed[i] && s_peak_depth[i] >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA) {
                     s_crossed[i] = true;
                     s_crossed_ms[i] = now;
-                    tiles_strike_settle_begin(&s_settle[i], s_peak_depth[i], now);
-                } else if (s_crossed[i] && sample_ms != s_last_sample_ms[i]) {
-                    tiles_strike_settle_sample(&s_settle[i], depth, sample_ms);
-                }
-                s_last_sample_ms[i] = sample_ms;
-                if (s_crossed[i] && !s_thrown[i] &&
-                    tiles_strike_settle_ready(&s_settle[i], s_peak_depth[i], TILES_EXPRESSION_FULL_STRIKE_DEPTH, now)) {
-                    uint8_t v = tiles_expression_velocity_from_strike(s_crossed_ms[i] - (s_touch_started_ms[i] & ~1u),
-                                                                      s_peak_depth[i]);
-                    gravity_throw(lane, pad, base + BOUNCE_THROW_FORCE_PADS * (float)v / 127.0f);
-                    s_thrown[i] = true;
                 }
                 if (s_touch_started_ms[i] != 0u && now - s_touch_started_ms[i] >= BOUNCE_PICK_HOLD_MS) {
                     s_pick_lane = lane;
-                    resync_touches();
+                    resync_touches(); /* the held finger lifts without a throw */
                     tiles_haptics_trigger_touch_pulse(pad);
                     return;
                 }
             } else if (was && s_touch_started_ms[i] != 0u) {
-                if (!s_thrown[i]) {
-                    float force = 0.0f;
-                    if (s_crossed[i]) {
-                        uint32_t strike_ms = s_crossed_ms[i] - (s_touch_started_ms[i] & ~1u);
-                        force = (float)tiles_expression_velocity_from_strike(strike_ms, s_peak_depth[i]) / 127.0f;
-                    }
-                    gravity_throw(lane, pad, base + BOUNCE_THROW_FORCE_PADS * force);
+                float force = 0.0f;
+                if (s_crossed[i]) {
+                    uint32_t strike_ms = s_crossed_ms[i] - (s_touch_started_ms[i] & ~1u);
+                    force = (float)tiles_expression_velocity_from_strike(strike_ms, s_peak_depth[i]) / 127.0f;
                 }
+                float base = (float)(TILES_GRID_MAX_ROW - row); /* pads above the floor */
+                gravity_throw(lane, pad, base + BOUNCE_THROW_FORCE_PADS * force);
                 s_touch_started_ms[i] = 0u;
             }
         }
@@ -522,7 +483,6 @@ static void handle_gravity_pads(uint32_t now) {
 }
 
 void tiles_bounce_mode_handle_input(uint32_t now) {
-    handle_square(now);
     if (tiles_bounce_mode_is_picking()) {
         handle_pick();
         return;

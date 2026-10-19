@@ -266,7 +266,9 @@ bool tiles_expression_control_owns_pad_grid(void) {
  * as a tap. */
 static void set_submenu_visible(bool visible) {
     s_submenu_visible = visible;
-    tiles_lighting_set_standby_active(visible);
+    /* Closing hands the pads back: to op_mode, if its mode draws the whole
+     * grid through standby, else to the normal looks. */
+    tiles_lighting_set_standby_active(visible || tiles_op_mode_owns_pad_grid());
     if (visible) {
         for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
             s_prev_pad_touched[i] = tiles_touch_is_touched((uint8_t)(i + 1u));
@@ -402,8 +404,10 @@ void tiles_expression_control_scan(void) {
         return;
     }
 
-    if (tiles_op_mode_owns_pad_grid()) {
-        /* op_mode's menu or sequencer owns the grid: same as above. */
+    if (tiles_op_mode_has_menu_open()) {
+        /* An op_mode menu or sub-view (step edit, pattern bank, a capture, a
+         * pitch pick) has the grid: same as above. In the modes that draw the
+         * whole grid otherwise, square still opens this menu. */
         s_square_was_held = square_held;
         s_circle_was_held = circle_held;
         s_combo_was_held = circle_held && square_held;
@@ -472,10 +476,11 @@ void tiles_expression_control_scan(void) {
     s_square_alone_was_held = square_alone_held;
 
     if (!square_held && s_square_was_held && !s_square_press_had_long_action) {
-        /* A real click: closes a sticky menu, otherwise toggles pitch bend. */
+        /* A real click: closes a sticky menu, else it's the mode's (op_mode.h)
+         * or toggles pitch bend. */
         if (s_submenu_sticky) {
             s_submenu_sticky = false;
-        } else if (tiles_op_mode_square_toggles_bend()) {
+        } else if (!tiles_op_mode_handle_square_click()) {
             tiles_expression_toggle_pitch_bend();
         }
     }

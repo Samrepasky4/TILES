@@ -3214,6 +3214,9 @@ void tiles_op_mode_init(bool crash_recovered) {
  * standby animation don't stop it; a game (it owns channel 11 and the
  * haptics) and deep sleep do. */
 static bool s_tick_start_edge; /* a Start the tick stepped on, for the scan's other uses */
+/* Another feature had the board last scan (edge: resync when it returns). */
+static bool s_other_feature_was_active;
+static void resync_after_other_feature(void);
 /* The clock as playback last stepped on it: a tick with nothing new skips. */
 static uint32_t s_stepped_pulse;
 static bool s_stepped_running;
@@ -3295,6 +3298,11 @@ void tiles_op_mode_scan(void) {
         if (s_active_mode == OP_MODE_CHORD) {
             chord_end_all_notes();
         }
+        if (!s_other_feature_was_active && s_active_mode == OP_MODE_HARMONY &&
+            tiles_expression_control_owns_pad_grid()) {
+            tiles_harmony_leave(); /* the Feel menu takes the grid: end the held chord */
+        }
+        s_other_feature_was_active = true;
         if (playback_paused()) {
             /* A game or deep sleep: playback stops here, so a note sounding at
              * that moment would never end (and its haptic would buzz at the
@@ -3312,6 +3320,11 @@ void tiles_op_mode_scan(void) {
         s_tick_start_edge = false; /* nothing else here reads it */
         advance_playback(tiles_midi_clock_get_state());
         return;
+    }
+
+    if (s_other_feature_was_active) {
+        s_other_feature_was_active = false;
+        resync_after_other_feature();
     }
 
     handle_triangle_click();
@@ -3505,8 +3518,14 @@ void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool
     }
 }
 
-bool tiles_op_mode_square_toggles_bend(void) {
-    return s_active_mode != OP_MODE_BOUNCE;
+bool tiles_op_mode_handle_square_click(void) {
+    if (!mode_owns_standby_grid(s_active_mode)) {
+        return false;
+    }
+    if (s_active_mode == OP_MODE_BOUNCE) {
+        tiles_bounce_mode_toggle_gravity();
+    }
+    return true;
 }
 
 bool tiles_op_mode_get_menu_entry_enabled(tiles_op_mode_menu_entry_t entry) {
@@ -5127,4 +5146,27 @@ static void render_scene_launch(uint32_t now_ms) {
         tiles_buttons_set_standby_led(board_button_for_col(col), level);
     }
     render_scene_launch_underglow(now_ms);
+}
+
+/* Back from the Feel menu (or transpose, standby, a game): a finger that
+ * went down or up meanwhile isn't a tap, here or in the mode's grid. Drums
+ * resync themselves (tiles_drum_seq_advance()'s `shown`). */
+static void resync_after_other_feature(void) {
+    op_seq_pattern_t *layout_pat = active_pattern();
+    for (uint8_t step = 0; step < OP_SEQ_NUM_STEPS; step++) {
+        s_seq_prev_pad_touched[step] = tiles_touch_is_touched(seq_pad_for_step(layout_pat, step));
+        s_seq_step_touch_started_ms[step] = 0u;
+    }
+    for (uint8_t slot = 0; slot < OP_SONG_NUM_SLOTS; slot++) {
+        s_song_prev_pad_touched[slot] = tiles_touch_is_touched((uint8_t)(slot + 1u));
+    }
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        s_scene_prev_pad_touched[i] = tiles_touch_is_touched((uint8_t)(i + 1u));
+    }
+    if (s_active_mode == OP_MODE_HARMONY) {
+        tiles_harmony_enter();
+    }
+    if (s_active_mode == OP_MODE_BOUNCE) {
+        tiles_bounce_mode_enter();
+    }
 }

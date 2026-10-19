@@ -179,6 +179,9 @@ typedef enum {
 void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool enabled);
 bool tiles_op_mode_get_menu_entry_enabled(tiles_op_mode_menu_entry_t entry);
 
-/* False where square is only the Feel menu (bouncing notes): no pitch bend
- * toggle there. */
-bool tiles_op_mode_square_toggles_bend(void);
+/* A square click (services/expression_control.c), outside the Feel menu.
+ * True if the mode took it: the modes that draw the whole grid (sequencer,
+ * drums, Song, Prism, Ableton, Bouncing notes) never toggle pitch bend with
+ * it; Bouncing notes turns Real gravity on/off. False: it toggles bend.
+ * Square held opens the Feel menu in every mode. */
+bool tiles_op_mode_handle_square_click(void);

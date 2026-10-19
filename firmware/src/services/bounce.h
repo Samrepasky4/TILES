@@ -22,14 +22,16 @@
  *                 every ball lands on its next beat, so they bounce on its
  *                 grid).
  *   circle        tap tempo.
- *   square        click: Real gravity on/off (its LED lit while on).
+ *   square        click: Real gravity on/off (its LED lit while on); held:
+ *                 the Feel menu, as in every mode.
  *
- * Real gravity, the expressive version: a touch throws the column's ball
- * (the pad's row sets the base height, how hard you hit adds up to two
- * pads, off the top of the grid and back), and every landing keeps 70% of
+ * Real gravity, the expressive version: a tap throws the column's ball as
+ * it lifts (the pad's row sets the base height, how hard you hit adds up
+ * to two pads, off the top of the grid and back; a hold only picks the
+ * pitch), and every landing keeps 70% of
  * the height, so it bounces lower, faster and softer until it rests: the
  * accelerating rhythm of a dropped ball, in free time scaled by the tempo
- * (bounce_core.h). Each touch throws again; hold still picks the pitch.
+ * (bounce_core.h). Each tap throws again.
  * "-" catches every ball, "+" throws every lane again as it last was. The
  * plain balls wait meanwhile and carry on when it's turned off.
  *
@@ -79,8 +81,9 @@ void tiles_bounce_mode_start(bool from_floor);
 void tiles_bounce_mode_start_on_beat(void);
 void tiles_bounce_mode_pause(void);
 void tiles_bounce_mode_rewind(void);
-/* Real gravity (square click while shown). */
+/* Real gravity (a square click while shown, via op_mode.c). */
 bool tiles_bounce_mode_is_gravity(void);
+void tiles_bounce_mode_toggle_gravity(void);
 
 /* Ends any sounding notes (a panic, or a mode that needs the channel). */
 void tiles_bounce_mode_end_all_notes(void);

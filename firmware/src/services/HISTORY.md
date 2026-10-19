@@ -9992,3 +9992,26 @@ change. Search it by file or feature name.
     modes (sequencer, drums, Bouncing notes): expression_control returns
     early when op_mode owns the grid, so bounce.h's "the Feel menu only"
     was wrong; the click was free.
+- **Square held = the Feel menu in every mode; Real gravity throws on the
+  lift (0.9.1, 2026-10-19).** Asked: "yes, make square hold open the Feel
+  menu in those modes"; then "bouncing notes is being triggered even before
+  pitch is assigned, that's wrong unless we just tap the pad, not hold it".
+  - expression_control.c skips only while an op_mode menu or sub-view is up
+    (tiles_op_mode_has_menu_open()), not whenever a mode draws the whole
+    grid, so square held opens the Feel menu in the sequencer, drums, Song,
+    Prism, Ableton and Bouncing notes too. Closing it hands the pads back to
+    the mode's standby drawing (set_submenu_visible() keeps standby on when
+    tiles_op_mode_owns_pad_grid()). A square click there goes to
+    tiles_op_mode_handle_square_click(): Bouncing notes toggles Real gravity,
+    the other grid modes do nothing (no pitch bend toggle); elsewhere it
+    toggles bend as before. bounce.c's own square watcher is gone: with the
+    menu opening on press, op_mode never saw the press, so the click was
+    lost.
+  - Feel menu over Prism ends the held chord (tiles_harmony_leave()); back
+    from any other feature, op_mode resyncs the sequencer's steps, Song's
+    slots, Ableton's grid, Prism and Bouncing notes so a finger that went
+    down or up meanwhile isn't a tap (resync_after_other_feature()).
+  - Real gravity threw on the strike, so holding a pad to pick its pitch
+    threw the ball (and could land a note) first. Now a tap throws on the
+    lift, strength from the press it made; a hold only picks the pitch. The
+    ball falls before it lands anyway, so the lift costs nothing audible.
