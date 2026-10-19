@@ -32,8 +32,10 @@
  * the height, so it bounces lower, faster and softer until it rests: the
  * accelerating rhythm of a dropped ball, in free time scaled by the tempo
  * (bounce_core.h). Each tap throws again.
- * "-" catches every ball, "+" throws every lane again as it last was. The
- * plain balls wait meanwhile and carry on when it's turned off.
+ * "-" catches every ball, "+" throws every lane again as it last was.
+ * Switching either way keeps every ball where it is and the notes sounding:
+ * gravity takes the plain balls from their height and point in the bounce,
+ * and back, each ball takes the plain height nearest its apex.
  *
  * Lane pitches: the scale (circle + triangle) from the key note up, lane 1 the
  * key note itself, at the octave set elsewhere; chromatic = 12 semitones. A

@@ -98,7 +98,9 @@ static bool s_gravity;
 static tiles_gravity_t s_grav;
 static float s_last_throw[TILES_BOUNCE_LANES]; /* "+" throws them again */
 static uint32_t s_grav_last_ms;
-static uint32_t s_note_off_ms[TILES_BOUNCE_LANES]; /* 0 = none due */
+static uint32_t s_note_off_ms[TILES_BOUNCE_LANES]; /* 0 = none due (both modes) */
+/* Back to the plain balls: their next step lands on the eighth grid. */
+static bool s_step_realign;
 /* A throw's strength, per pad: how far it was pressed and how fast it got
  * past the strike depth (expression's velocity curve). */
 static float s_peak_depth[TILES_NUM_PADS];
@@ -197,16 +199,20 @@ static void gravity_throw(uint8_t lane, uint8_t pad, float apex) {
 }
 
 /* Free time, scaled by the tempo: notes first, then the haptics. */
-static void gravity_advance(uint32_t now) {
-    uint32_t dt_ms = now - s_grav_last_ms;
-    s_grav_last_ms = now;
-    float eighth_ms = tiles_midi_clock_get_ms_per_beat() * 0.5f;
+/* Notes with an end time (gravity's, and any carried across a switch). */
+static void note_offs_due(uint32_t now) {
     for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
         if (s_note_off_ms[lane] != 0u && (int32_t)(now - s_note_off_ms[lane]) >= 0) {
             lane_off(lane);
             s_note_off_ms[lane] = 0u;
         }
     }
+}
+
+static void gravity_advance(uint32_t now) {
+    uint32_t dt_ms = now - s_grav_last_ms;
+    s_grav_last_ms = now;
+    float eighth_ms = tiles_midi_clock_get_ms_per_beat() * 0.5f;
     if (eighth_ms <= 0.0f || dt_ms == 0u) {
         return;
     }
@@ -242,14 +248,77 @@ bool tiles_bounce_mode_is_gravity(void) {
     return s_gravity;
 }
 
+static float step_fraction(uint32_t now);
+
+/* Switching keeps every ball where it is in its bounce, and the notes
+ * sounding:
+ *   - to gravity: a plain ball of height h becomes one with an apex of h-1
+ *     pads (a height-1 dribble: the smallest throw), at the same point of
+ *     its bounce; from there it loses height as gravity does;
+ *   - back: each ball takes the plain height nearest its apex (a resting
+ *     one is off), at the step of its bounce it was on, and the plain
+ *     balls carry on, the next step on the eighth grid (they move while
+ *     the clock runs, as always). */
+static void gravity_from_plain(float frac) {
+    tiles_gravity_clear(&s_grav);
+    for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
+        uint8_t h = s_balls.height[lane];
+        if (h == 0u) {
+            continue;
+        }
+        float apex = h > 1u ? (float)(h - 1u) : BOUNCE_THROW_MIN_APEX;
+        float u = h > 1u ? ((float)s_balls.phase[lane] + frac) / (2.0f * (float)(h - 1u)) : frac;
+        s_grav.apex[lane] = apex;
+        s_grav.t[lane] = u * tiles_gravity_period(apex);
+        s_last_throw[lane] = apex;
+    }
+}
+
+static void plain_from_gravity(void) {
+    bool any = false;
+    for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
+        float apex = s_grav.apex[lane];
+        if (apex <= 0.0f) {
+            s_balls.height[lane] = 0u;
+            s_balls.phase[lane] = 0u;
+            continue;
+        }
+        float rounded = roundf(apex) + 1.0f;
+        uint8_t h = (uint8_t)fminf(fmaxf(rounded, 1.0f), (float)TILES_BOUNCE_MAX_HEIGHT);
+        uint8_t period = tiles_bounce_period(h);
+        float u = s_grav.t[lane] / tiles_gravity_period(apex);
+        uint8_t phase = (uint8_t)(u * (float)period);
+        s_balls.height[lane] = h;
+        s_balls.phase[lane] = phase < period ? phase : (uint8_t)(period - 1u);
+        any = true;
+    }
+    if (any) {
+        s_running = true;
+        s_rewound = false;
+        s_step_realign = true;
+    }
+}
+
 static void set_gravity(bool on) {
     if (on == s_gravity) {
         return;
     }
-    tiles_bounce_mode_end_all_notes();
-    gravity_catch_all();
+    uint32_t now = now_ms();
+    if (on) {
+        gravity_from_plain(step_fraction(now));
+        /* Plain notes end on the next step, which won't come: give them an
+         * eighth. */
+        uint32_t eighth_ms = (uint32_t)(tiles_midi_clock_get_ms_per_beat() * 0.5f);
+        for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
+            if (s_sounding[lane] != 0u && s_note_off_ms[lane] == 0u) {
+                s_note_off_ms[lane] = (now + eighth_ms) | 1u;
+            }
+        }
+    } else {
+        plain_from_gravity();
+    }
     s_gravity = on;
-    s_grav_last_ms = now_ms();
+    s_grav_last_ms = now;
 }
 
 void tiles_bounce_mode_toggle_gravity(void) {
@@ -383,6 +452,7 @@ void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock, bool shown) {
         s_last_pulse_ms = now_ms();
     }
     s_clock_running = clock.running;
+    note_offs_due(now_ms());
     if (s_gravity) {
         /* The plain balls wait (their state kept) while gravity plays. */
         s_step_pulse = clock.pulse_count;
@@ -402,6 +472,10 @@ void tiles_bounce_mode_advance(tiles_midi_clock_state_t clock, bool shown) {
     if (!s_running || !clock.running) {
         s_step_pulse = clock.pulse_count; /* no catching up after a pause */
         return;
+    }
+    if (s_step_realign) {
+        s_step_realign = false;
+        s_step_pulse = clock.pulse_count - clock.song_pulse % BOUNCE_PULSES_PER_STEP;
     }
     if (clock.start_edge) {
         /* On the song's eighth-note grid (mid-song after a DAW's position). */

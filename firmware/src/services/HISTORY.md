@@ -10015,3 +10015,18 @@ change. Search it by file or feature name.
     threw the ball (and could land a note) first. Now a tap throws on the
     lift, strength from the press it made; a hold only picks the pitch. The
     ball falls before it lands anyway, so the lift costs nothing audible.
+- **Gravity switches keep the balls; empty sequencer steps dark again
+  (0.9.2, 2026-10-19).** Asked: "make it so changing from gravity vs no
+  gravity doesn't stop current notes, it just enables or disables the
+  gravity from their current position; also remove the light on steps that
+  aren't on in sequencer mode".
+  - set_gravity() no longer ends notes or catches balls. To gravity
+    (gravity_from_plain()): a plain ball of height h becomes apex h-1 (a
+    height-1 dribble: the smallest throw) at the same point of its bounce;
+    plain notes still sounding get an eighth (their next step won't come).
+    Back (plain_from_gravity()): each ball takes the plain height nearest
+    its apex (resting ones off) at the step of its bounce it was on, the
+    plain transport on, the next step realigned to the eighth grid
+    (s_step_realign). Note-offs with an end time now run in both modes.
+  - Sequencer: empty in-loop steps dark (the faint scarlet from 0.8.1/0.8.7
+    is gone); armed steps stay scarlet.

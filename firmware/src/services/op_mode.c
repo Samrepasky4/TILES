@@ -264,10 +264,6 @@ static uint32_t s_beat_flash_start_ms;
 #define OP_SEQ_VELOCITY 100u
 
 #define OP_SEQ_DIM_RED_LEVEL 0.3f
-/* An empty step inside the loop: the mode's scarlet, faint, so the loop's
- * length shows on the pads; past the loop, off. Armed steps are the same
- * scarlet at OP_SEQ_DIM_RED_LEVEL. */
-#define OP_SEQ_EMPTY_STEP_LEVEL 0.1f
 /* Playhead on an UNARMED step: dim white, so the current step always
  * shows. */
 #define OP_SEQ_CURSOR_LEVEL 0.15f
@@ -924,9 +920,7 @@ static void render_sequencer(float beat_flash_level, bool transport_running) {
                 /* Playhead on an unarmed step (or paused / waiting to start): dim white. */
                 tiles_lighting_set_standby_pad_rgb(pad, OP_SEQ_CURSOR_LEVEL, OP_SEQ_CURSOR_LEVEL, OP_SEQ_CURSOR_LEVEL);
             } else if (!pat->step_armed[step]) {
-                tiles_lighting_set_standby_pad_rgb(pad, OP_MENU_SEQUENCER_R * OP_SEQ_EMPTY_STEP_LEVEL,
-                                                    OP_MENU_SEQUENCER_G * OP_SEQ_EMPTY_STEP_LEVEL,
-                                                    OP_MENU_SEQUENCER_B * OP_SEQ_EMPTY_STEP_LEVEL);
+                tiles_lighting_set_standby_pad_rgb(pad, 0.0f, 0.0f, 0.0f); /* empty: dark */
             } else {
                 /* Armed steps are the mode's scarlet, dim, tinted toward amber if
                  * probability may skip them (only while probability_enabled) and toward
