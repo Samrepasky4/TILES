@@ -108,6 +108,8 @@ static uint8_t floor_pad_for(uint8_t lane) {
     return board_pad_for_row_col(TILES_GRID_MAX_ROW, (uint8_t)(lane - s_offset + 1u));
 }
 
+/* Every note first, then the haptics: a motor's start is an I2C write, and
+ * between notes it would hold back the lanes after it. */
 static void play_landings(uint16_t landed) {
     uint32_t now = now_ms();
     for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
@@ -121,8 +123,10 @@ static void play_landings(uint16_t landed) {
             s_sounding[lane] = note;
         }
         s_landed_ms[lane] = now | 1u;
+    }
+    for (uint8_t lane = 0; lane < TILES_BOUNCE_LANES; lane++) {
         uint8_t pad = floor_pad_for(lane);
-        if (pad != 0u) {
+        if (((landed >> lane) & 1u) && pad != 0u) {
             tiles_haptics_trigger_touch_pulse(pad); /* feel the bounce */
         }
     }

@@ -87,6 +87,15 @@ bool tiles_midi_clock_restart(void);
  * play-while-stopped. */
 bool tiles_midi_clock_is_running(void);
 
+/* Clock lead, in ms (setting midi.clock_lead_ms): following an external
+ * clock, pulses come through this long before they're due, so notes land
+ * on the DAW's grid (midi_clock.c has the details). 15 = the offset
+ * measured recording Bouncing notes into Live 12 (64-sample buffer,
+ * 48 kHz); 0 = off. */
+#define TILES_MIDI_CLOCK_LEAD_MS_DEFAULT 15u
+void tiles_midi_clock_set_lead_ms(uint16_t lead_ms);
+uint16_t tiles_midi_clock_get_lead_ms(void);
+
 /* Current tempo in ms per quarter note, from whichever source is driving
  * (external: measured beat to beat; tap: the averaged interval). 500
  * (120 BPM) until either exists. op_mode's tempo-synced pulses read it. */

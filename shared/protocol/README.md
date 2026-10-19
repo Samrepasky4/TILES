@@ -172,6 +172,7 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x040A | `look.bend_dim_percent` | uint | 0 - 90 (0 = off) | `50` | yes |
 | 0x040B | `look.led_intensity_percent` | uint | 0 - 100 (0 = off) | `100` | yes |
 | 0x0500 | `midi.din_trs_type` | enum | `a`, `b` (TRS polarity of DIN MIDI OUT) | `a` | yes |
+| 0x0501 | `midi.clock_lead_ms` | uint | 0 - 50 (ms early that pulses come through when following a DAW's clock, so the notes they trigger land on its grid; 0 = off) | `15` | yes |
 | 0x0600 | `features.melodic_harmonics` | bool | | `1` | yes |
 | 0x0601 | `features.harmonics.arm_ms` | uint | 0 - 1000 (ms a struck note is held alone before other touches may pluck) | `150` | yes |
 | 0x0602 | `features.harmonics.confirm_ms` | uint | 0 - 500 (ms a touch waits before plucking) | `40` | yes |

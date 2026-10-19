@@ -8,6 +8,7 @@
 #include "din_midi.h"
 #include "expression.h"
 #include "lighting.h"
+#include "midi_clock.h"
 #include "op_mode.h"
 #include "pedal.h"
 #include "storage_flash.h"
@@ -34,6 +35,9 @@ static tiles_setting_value_t F(float v) {
     return x;
 }
 
+/* ---- MIDI clock ---- */
+static tiles_setting_value_t get_clock_lead(void) { return U(tiles_midi_clock_get_lead_ms()); }
+static void set_clock_lead(tiles_setting_value_t v) { tiles_midi_clock_set_lead_ms((uint16_t)v.u); }
 /* ---- pedal ---- */
 static tiles_setting_value_t get_pedal_mode(void) { return U((uint32_t)tiles_pedal_get_mode()); }
 static void set_pedal_mode(tiles_setting_value_t v) { tiles_pedal_set_mode((tiles_pedal_mode_t)v.u); }
@@ -226,6 +230,10 @@ static const tiles_setting_def_t TABLE[] = {
     /* MIDI */
     TILES_SETTING(0x0500, "midi.din_trs_type", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, DIN_TYPE_NAMES, get_din_type,
                   set_din_type),
+    /* Following a DAW's clock, how many ms early pulses come through so the
+     * notes land on its grid (services/midi_clock.h); 0 = off. */
+    TILES_SETTING(0x0501, "midi.clock_lead_ms", TILES_SETTING_UINT, {.u = 0}, {.u = 50}, NULL, get_clock_lead,
+                  set_clock_lead),
     /* features */
     TILES_SETTING(0x0600, "features.melodic_harmonics", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_harmonics,
                   set_harmonics),

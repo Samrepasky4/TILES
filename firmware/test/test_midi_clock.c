@@ -106,6 +106,67 @@ int main(void) {
     st = pass();
     assert(!st.running && !st.start_edge);
 
+    /* 8. the lead: at 120 BPM (20.833 ms a pulse), after a Start, each pulse
+     * comes through 15 ms before its Clock, never two ahead, never back */
+    tiles_midi_clock_set_lead_ms(15u);
+    g_now_ms = 100000u;
+    byte(0xFA);
+    byte(0xF8); /* the downbeat */
+    st = pass();
+    assert(st.start_edge && st.pulse_count % 24u == 0u);
+    downbeat = st.pulse_count;
+    /* Clocks at 0, 21, 42, 63 ms (whole ms: 21 ~ 20.8) */
+    for (int k = 1; k <= 3; k++) {
+        g_now_ms = 100000u + (uint32_t)(21 * k);
+        byte(0xF8);
+        st = pass();
+        assert(st.pulse_count == downbeat + (uint32_t)k);
+    }
+    /* 63 ms: pace known (3 intervals of 21). 5 ms after: not yet; 6 ms
+     * after (= 21 - 15): the next pulse is through */
+    g_now_ms = 100063u + 5u;
+    assert(pass().pulse_count == downbeat + 3u);
+    g_now_ms = 100063u + 6u;
+    assert(pass().pulse_count == downbeat + 4u);
+    /* still one ahead at most, however long the Clock takes */
+    g_now_ms = 100063u + 40u;
+    assert(pass().pulse_count == downbeat + 4u);
+    /* the Clock arrives: no double count */
+    byte(0xF8);
+    assert(pass().pulse_count == downbeat + 4u);
+    /* a Stop never takes a pulse back */
+    byte(0xFC);
+    assert(pass().pulse_count == downbeat + 4u);
+
+    /* 9. lead 0 = off */
+    tiles_midi_clock_set_lead_ms(0u);
+    g_now_ms = 200000u;
+    byte(0xFA);
+    byte(0xF8);
+    downbeat = pass().pulse_count;
+    for (int k = 1; k <= 4; k++) {
+        g_now_ms = 200000u + (uint32_t)(21 * k);
+        byte(0xF8);
+        pass();
+    }
+    g_now_ms += 20u;
+    assert(pass().pulse_count == downbeat + 4u);
+    byte(0xFC);
+    pass();
+
+    /* 10. the tap/restart generator keeps real time: 120 BPM is 480 pulses
+     * in 10 s (whole-ms pulses made 476) */
+    g_now_ms = 300000u; /* the external clock long gone */
+    pass();
+    assert(tiles_midi_clock_restart());
+    uint32_t from = pass().pulse_count;
+    for (uint32_t ms = 1u; ms <= 10000u; ms++) {
+        g_now_ms = 300000u + ms;
+        pass();
+    }
+    uint32_t pulses = pass().pulse_count - from;
+    assert(pulses >= 479u && pulses <= 481u);
+
     printf("midi_clock: all tests pass\n");
     return 0;
 }

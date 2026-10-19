@@ -9885,3 +9885,27 @@ change. Search it by file or feature name.
     a Start with no Clock.
   - Not handled yet: Song Position Pointer (Live sends SPP + Continue when
     playing from mid-song; the board then resumes on its own count).
+- **Clock lead, exact internal tempo, Bouncing notes' haptics after its
+  notes (0.8.6, 2026-10-19).** Reported: "we have a misalignment of 15 ms
+  in bouncing notes; it could be a clock thing or MIDI or trigger".
+  - Clock: the board never sends clock, so recorded into Live it follows
+    Live's (Sync on both TILES outputs, Sync Delay 0). A constant offset
+    like this is the round trip: Live's clock out, USB both ways, the
+    pass, Live stamping what comes back; the board's own share is one
+    pass (~1-3 ms). It can't hear a Clock sooner, so it now runs ahead:
+    midi_clock.c predicts each pulse from the last Clocks' spacing (a
+    24-interval ring of arrival times) and lets it through
+    midi.clock_lead_ms (0x0501, default 15: the offset measured here)
+    before it's due; capped at 0.75 of a pulse (never a whole pulse
+    early), only after 3 Clocks have set the pace, and the count given out
+    never goes back. The downbeat right after a Start can't be foreseen and
+    still comes as it arrives.
+  - The tap / "+" generator counted whole milliseconds per pulse
+    (20.833 -> 21 at 120 BPM: really 119 BPM, ~16 ms behind per bar against
+    a DAW at 120); it now runs in microseconds (test: 480 pulses in 10 s).
+  - Bouncing notes: a landing's haptic pulse is an I2C write; it ran
+    between one lane's note and the next, so with several lanes landing
+    together the later notes went out late. Notes first, then haptics.
+  - test_midi_clock.c: the lead (through 6 ms before a 21 ms Clock, at most
+    one ahead, no double count, never back, 0 = off) and the generator's
+    tempo.

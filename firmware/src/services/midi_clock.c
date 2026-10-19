@@ -58,7 +58,27 @@ static bool s_tap_tempo_established;
  * every fresh 4-tap sequence after a manual stop auto-starts playback. */
 static bool s_session_hit_minimum;
 static float s_tap_interval_ms; /* averaged ms per quarter note, valid once established */
-static uint32_t s_next_virtual_pulse_due_ms;
+/* In microseconds: whole milliseconds per pulse ran 120 BPM at 119. */
+static uint64_t s_next_virtual_pulse_due_us;
+
+/* Clock lead (setting midi.clock_lead_ms, tiles_midi_clock_set_lead_ms()):
+ * following an external clock, each pulse is let through this long before
+ * it is due, predicted from the spacing of the last Clocks, so the notes it
+ * triggers make up the round trip they lose (the DAW's clock out, USB both
+ * ways, this board's pass, the DAW stamping what comes back) and land on
+ * the DAW's grid. At most LEAD_MAX_FRACTION of a pulse (never a whole pulse
+ * early), and only once LEAD_MIN_CLOCKS Clocks have set the pace; the
+ * downbeat after a Start can't be foreseen and comes as it arrives. */
+#define LEAD_MAX_FRACTION 0.75f
+#define LEAD_PACE_CLOCKS 25u /* up to 24 intervals: a beat */
+#define LEAD_MIN_CLOCKS 3u
+#define LEAD_MIN_PULSE_US 1000.0f /* faster = a burst, not a tempo */
+static uint16_t s_lead_ms = TILES_MIDI_CLOCK_LEAD_MS_DEFAULT;
+static uint32_t s_clock_us[LEAD_PACE_CLOCKS]; /* arrival times, a ring */
+static uint8_t s_clock_us_head;               /* next slot written */
+static uint8_t s_clock_us_count;
+/* pulse_count as given out (with the lead): it never goes back. */
+static uint32_t s_visible_count;
 
 /* Forward-declared for registration in init. */
 static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms);
@@ -77,7 +97,10 @@ void tiles_midi_clock_init(void) {
     s_tap_tempo_established = false;
     s_session_hit_minimum = false;
     s_tap_interval_ms = 0.0f;
-    s_next_virtual_pulse_due_ms = 0u;
+    s_next_virtual_pulse_due_us = 0u;
+    s_clock_us_count = 0u;
+    s_clock_us_head = 0u;
+    s_visible_count = 0u;
     /* Real-Time bytes arrive via midi/midi_in.h, the single reader of MIDI
      * input. */
     tiles_midi_in_register_realtime_callback(midi_clock_on_realtime_byte);
@@ -85,6 +108,70 @@ void tiles_midi_clock_init(void) {
 
 bool tiles_midi_clock_is_running(void) {
     return s_running;
+}
+
+void tiles_midi_clock_set_lead_ms(uint16_t lead_ms) {
+    s_lead_ms = lead_ms;
+}
+
+uint16_t tiles_midi_clock_get_lead_ms(void) {
+    return s_lead_ms;
+}
+
+static uint64_t now_us(void) {
+    return to_us_since_boot(get_absolute_time());
+}
+
+static uint64_t pulse_us_from_beat_ms(float ms_per_beat) {
+    float us = ms_per_beat * 1000.0f / 24.0f;
+    if (us < 1000.0f) {
+        us = 1000.0f; /* a near-instant double tap mustn't spin the generator */
+    }
+    return (uint64_t)(us + 0.5f);
+}
+
+/* The lead's pace: Clock arrival times. A gap past the external timeout
+ * (the clock stopped and came back) starts it over. */
+static void pace_push(uint32_t t_us) {
+    if (s_clock_us_count > 0u) {
+        uint32_t newest = s_clock_us[(s_clock_us_head + LEAD_PACE_CLOCKS - 1u) % LEAD_PACE_CLOCKS];
+        if (t_us - newest > EXTERNAL_CLOCK_TIMEOUT_MS * 1000u) {
+            s_clock_us_count = 0u;
+        }
+    }
+    s_clock_us[s_clock_us_head] = t_us;
+    s_clock_us_head = (uint8_t)((s_clock_us_head + 1u) % LEAD_PACE_CLOCKS);
+    if (s_clock_us_count < LEAD_PACE_CLOCKS) {
+        s_clock_us_count++;
+    }
+}
+
+/* The counter can sit one behind what was given out (the lead let a pulse
+ * through before its Clock); before realigning it, catch it up. */
+static void catch_up_to_visible(void) {
+    if (s_pulse_count < s_visible_count) {
+        s_pulse_count = s_visible_count;
+    }
+}
+
+static uint32_t visible_pulse_count(void) {
+    uint32_t count = s_pulse_count;
+    if (s_running && !s_source_is_tap_tempo && s_lead_ms > 0u && s_clock_us_count >= LEAD_MIN_CLOCKS) {
+        uint32_t newest = s_clock_us[(s_clock_us_head + LEAD_PACE_CLOCKS - 1u) % LEAD_PACE_CLOCKS];
+        uint32_t oldest = s_clock_us[(s_clock_us_head + LEAD_PACE_CLOCKS - s_clock_us_count) % LEAD_PACE_CLOCKS];
+        float pulse_us = (float)(newest - oldest) / (float)(s_clock_us_count - 1u);
+        if (pulse_us >= LEAD_MIN_PULSE_US) {
+            float lead_us = fminf((float)s_lead_ms * 1000.0f, LEAD_MAX_FRACTION * pulse_us);
+            if ((float)((uint32_t)now_us() - newest) >= pulse_us - lead_us) {
+                count++;
+            }
+        }
+    }
+    if (count < s_visible_count) {
+        count = s_visible_count;
+    }
+    s_visible_count = count;
+    return count;
 }
 
 float tiles_midi_clock_get_ms_per_beat(void) {
@@ -169,8 +256,7 @@ void tiles_midi_clock_register_tap(uint32_t now_ms) {
 
     /* Re-sync the generator's phase to this tap, so the beat snaps to the
      * tapping. */
-    float virtual_pulse_interval_ms = s_tap_interval_ms / 24.0f; /* 24 clocks per quarter note */
-    s_next_virtual_pulse_due_ms = now_ms + (uint32_t)(virtual_pulse_interval_ms + 0.5f);
+    s_next_virtual_pulse_due_us = now_us() + pulse_us_from_beat_ms(s_tap_interval_ms);
 
     if (session_just_reached_minimum && !s_running) {
         /* Same contract as a real Start, so the sequencer resets to step 0. */
@@ -195,8 +281,9 @@ bool tiles_midi_clock_restart(void) {
     /* Beat 1 now: the pulse count jumps to the next beat boundary (every lane
      * re-anchors on start_edge, so the jump never plays steps), and the next
      * pulse is one pulse interval from now. */
+    catch_up_to_visible();
     s_pulse_count += (24u - s_pulse_count % 24u) % 24u;
-    s_next_virtual_pulse_due_ms = now_ms + (uint32_t)(s_tap_interval_ms / 24.0f + 0.5f);
+    s_next_virtual_pulse_due_us = now_us() + pulse_us_from_beat_ms(s_tap_interval_ms);
     s_running = true;
     s_start_edge = true;
     return true;
@@ -216,6 +303,7 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
     switch (realtime_byte) {
     case MIDI_REALTIME_CLOCK:
         s_pulse_count++;
+        pace_push((uint32_t)now_us());
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         if (s_start_pending) {
@@ -248,7 +336,9 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
          * stopped meanwhile, so nothing steps across the jump. */
         s_running = false;
         s_start_pending = true;
+        catch_up_to_visible();
         s_pulse_count += 23u - s_pulse_count % 24u;
+        s_clock_us_count = 0u; /* a fresh pace from the downbeat */
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         break;
@@ -257,6 +347,7 @@ static void midi_clock_on_realtime_byte(uint8_t realtime_byte, uint32_t now_ms) 
         printf("[midi_clock] real Continue (0xFB) received, pulse_count=%lu\n", (unsigned long)s_pulse_count);
         s_start_pending = false;
         s_running = true;
+        s_clock_us_count = 0u;
         s_last_external_pulse_ms = now_ms;
         s_ever_seen_external_pulse = true;
         break;
@@ -305,15 +396,13 @@ void tiles_midi_clock_scan(void) {
      * (external_active_now already includes any bytes from this scan). */
     if (!external_active_now && s_tap_tempo_established) {
         s_source_is_tap_tempo = true;
-        float virtual_pulse_interval_ms = s_tap_interval_ms / 24.0f;
-        if (virtual_pulse_interval_ms < 1.0f) {
-            virtual_pulse_interval_ms = 1.0f;
-        }
+        uint64_t pulse_us = pulse_us_from_beat_ms(s_tap_interval_ms);
+        uint64_t t_us = now_us();
         /* Bounded loop: catches up several due pulses without any way to spin. */
         uint32_t guard = 0u;
-        while (now_ms >= s_next_virtual_pulse_due_ms && guard < 1000u) {
+        while (t_us >= s_next_virtual_pulse_due_us && guard < 1000u) {
             s_pulse_count++;
-            s_next_virtual_pulse_due_ms += (uint32_t)(virtual_pulse_interval_ms + 0.5f);
+            s_next_virtual_pulse_due_us += pulse_us;
             guard++;
         }
     } else {
@@ -323,7 +412,7 @@ void tiles_midi_clock_scan(void) {
 
 tiles_midi_clock_state_t tiles_midi_clock_get_state(void) {
     tiles_midi_clock_state_t state = {
-        .pulse_count = s_pulse_count,
+        .pulse_count = visible_pulse_count(),
         .running = s_running,
         .start_edge = s_start_edge,
         .source_is_tap_tempo = s_source_is_tap_tempo,
