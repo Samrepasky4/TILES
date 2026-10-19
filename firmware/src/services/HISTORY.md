@@ -9966,3 +9966,29 @@ change. Search it by file or feature name.
     2.78; with ticks that skip when no new pulse or edge came in (what
     shipped) 2.63 / 2.56. (The ~2.1 ms seen earlier in the week was with
     less MIDI coming in from Live.)
+- **Bouncing notes: Real gravity on the square (0.9.0, 2026-10-19).** Asked:
+  "make the expression button turn on a more expressive version of bouncing
+  notes; give me ideas and ask me to pick". Offered real gravity, wandering
+  balls, singing balls (MPE), chain reactions; picked real gravity.
+  - bounce_core.c gravity: a ball thrown to an apex keeps 70% of its height
+    each landing (TILES_GRAVITY_RESTITUTION) and rests below 0.06 pad; a
+    bounce takes 6/sqrt(3) * sqrt(apex) eighths (an apex of 3 = 6 eighths,
+    the plain mode's height 4), so the gaps shrink like a dropped ball's.
+    Free time, scaled by the tempo, not on the clock's grid. Tested
+    (lands half a bounce after the throw, every gap and impact smaller,
+    rests within ~a dozen bounces).
+  - bounce.c: a square click (alone, under 600 ms) toggles it, square LED
+    lit. A touch throws the column's ball as soon as the strike is measured
+    (strike_settle.h, expression's velocity curve): row = base apex (0..3
+    pads), strike adds up to 2 (off the grid and back); a light tap that
+    never presses throws from the row on the lift; hold still picks the
+    pitch. Landing velocity from the fall height (sqrt, full at 5 pads), a
+    note lasts until the next landing or an eighth. "-" catches every ball,
+    "+" throws each lane again as it last was; is_running() = a ball in the
+    air (so the menu's playing blink shows it). The plain balls wait, state
+    kept. Drawn with the same smooth renderer; the marker shows the next
+    apex sinking.
+  - Found on the way: the square never opened the Feel menu in grid-owning
+    modes (sequencer, drums, Bouncing notes): expression_control returns
+    early when op_mode owns the grid, so bounce.h's "the Feel menu only"
+    was wrong; the click was free.

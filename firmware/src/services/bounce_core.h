@@ -36,3 +36,30 @@ uint8_t tiles_bounce_ball_height(const tiles_bounce_t *b, uint8_t lane);
 
 /* One step: every ball moves; returns the lanes that land (bit n = lane n). */
 uint16_t tiles_bounce_step(tiles_bounce_t *b);
+
+/* ---- Real gravity (the expressive mode, square) ----------------------------
+ * A ball is thrown to an apex (pads above the floor, any height, the top of
+ * the grid is 3) and keeps RESTITUTION of its height every landing, so it
+ * bounces lower, faster and softer each time until it rests: the
+ * accelerating rhythm of a dropped ball. Time is in eighth notes, so the
+ * tempo scales it; a bounce takes PERIOD_K * sqrt(apex) of them (an apex of
+ * 3 bounces every 6 eighths, like height 4 of the plain mode). Not on the
+ * clock's grid: free time, landing when the physics says. */
+#define TILES_GRAVITY_RESTITUTION 0.7f
+#define TILES_GRAVITY_REST_APEX 0.06f
+#define TILES_GRAVITY_PERIOD_K 3.4641016f /* 6 / sqrt(3) */
+
+typedef struct {
+    float apex[TILES_BOUNCE_LANES]; /* 0 = at rest */
+    float t[TILES_BOUNCE_LANES];    /* eighths into the current bounce */
+} tiles_gravity_t;
+
+void tiles_gravity_clear(tiles_gravity_t *g);
+float tiles_gravity_period(float apex);
+/* Thrown to `apex`: starts at the top, falling (lands half a period later). */
+void tiles_gravity_throw(tiles_gravity_t *g, uint8_t lane, float apex);
+/* Moves every ball `dt` eighths on; returns the lanes that landed (bit n),
+ * with each one's apex before the landing (how hard it hit) in impact[]. */
+uint16_t tiles_gravity_step(tiles_gravity_t *g, float dt, float impact[TILES_BOUNCE_LANES]);
+/* Where lane's ball is, in pads above the floor (0 at rest or landing). */
+float tiles_gravity_height(const tiles_gravity_t *g, uint8_t lane);

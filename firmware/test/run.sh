@@ -35,7 +35,7 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_harmony_core.c src
 /tmp/sentia_tiles_test_harmony_core
 
 # Bouncing notes' balls: drop, landings, polyrhythm.
-cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/services/bounce_core.c -o /tmp/sentia_tiles_test_bounce_core
+cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/services/bounce_core.c -lm -o /tmp/sentia_tiles_test_bounce_core
 /tmp/sentia_tiles_test_bounce_core
 
 # Strike settle: when a struck pad's note can go before the follow-through ends.
