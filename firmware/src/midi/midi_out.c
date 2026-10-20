@@ -98,6 +98,43 @@ static bool is_channel_message(const uint8_t *msg, uint32_t len) {
     return len == ((kind == 0xC0u || kind == 0xD0u) ? 2u : 3u);
 }
 
+/* The PARTS port (midi/midi_ports.h): channels 10-16 go there by
+ * themselves; Song tracks and Volca, which use 1-9 as well, wrap their
+ * sends in tiles_midi_out_parts_begin()/end(). Only channel messages:
+ * pedals, clock and the rest stay on MAIN. */
+static bool s_parts_separate = true;
+static uint8_t s_parts_depth;
+
+void tiles_midi_out_set_parts_separate(bool separate) {
+    s_parts_separate = separate;
+}
+
+bool tiles_midi_out_get_parts_separate(void) {
+    return s_parts_separate;
+}
+
+void tiles_midi_out_parts_begin(void) {
+    if (s_parts_depth < 255u) {
+        s_parts_depth++;
+    }
+}
+
+void tiles_midi_out_parts_end(void) {
+    if (s_parts_depth > 0u) {
+        s_parts_depth--;
+    }
+}
+
+static uint8_t cable_for_channel_message(uint8_t status) {
+    if (!s_parts_separate) {
+        return TILES_USB_MIDI_CABLE_MAIN;
+    }
+    if (s_parts_depth > 0u || (status & 0x0Fu) >= TILES_MIDI_FIRST_PART_CHANNEL) {
+        return TILES_USB_MIDI_CABLE_PARTS;
+    }
+    return TILES_USB_MIDI_CABLE_MAIN;
+}
+
 static void usb_write(uint8_t cable, const char *what, const uint8_t *msg, uint32_t len) {
     bool mounted = tud_midi_mounted();
     if (mounted && !s_was_mounted) {
@@ -151,13 +188,13 @@ static void send1(uint8_t status) {
 static void send2(uint8_t status, uint8_t data1) {
     uint8_t msg[2] = {status, data1};
     tiles_din_midi_send(msg, sizeof(msg));
-    usb_write(TILES_USB_MIDI_CABLE_MAIN, "send2", msg, sizeof(msg));
+    usb_write(cable_for_channel_message(status), "send2", msg, sizeof(msg));
 }
 
 static void send3(uint8_t status, uint8_t data1, uint8_t data2) {
     uint8_t msg[3] = {status, data1, data2};
     tiles_din_midi_send(msg, sizeof(msg));
-    usb_write(TILES_USB_MIDI_CABLE_MAIN, "send3", msg, sizeof(msg));
+    usb_write(cable_for_channel_message(status), "send3", msg, sizeof(msg));
 }
 
 void tiles_midi_note_on(uint8_t channel, uint8_t note, uint8_t velocity) {
@@ -234,6 +271,14 @@ void tiles_midi_send_panic(void) {
     tiles_midi_send_cc_broadcast(64u, 0u); /* Damper Pedal (Sustain) off */
     tiles_midi_send_cc_broadcast(123u, 0u); /* All Notes Off */
     tiles_midi_send_cc_broadcast(120u, 0u); /* All Sound Off */
+    if (s_parts_separate) {
+        /* Song tracks and Volca play channels 1-9 on PARTS too (DIN gets the
+         * panic twice; harmless). */
+        tiles_midi_out_parts_begin();
+        tiles_midi_send_cc_broadcast(123u, 0u);
+        tiles_midi_send_cc_broadcast(120u, 0u);
+        tiles_midi_out_parts_end();
+    }
 }
 
 void tiles_midi_send_pitch_bend(uint8_t channel, uint16_t bend_14bit) {

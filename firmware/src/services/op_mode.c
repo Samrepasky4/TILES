@@ -58,6 +58,23 @@ typedef enum {
 
 static void mode_underglow(void); /* the active mode's colour on the underglow */
 
+/* Sequencer lanes and Song tracks: their notes go out on the Parts USB
+ * port (midi/midi_ports.h) whatever channel they're on (Song tracks borrow
+ * 2-9 from the MPE zone, services/midi_channels.h), never on the MIDI
+ * port's MPE zone. */
+static void part_note_on(uint8_t channel, uint8_t note, uint8_t velocity) {
+    tiles_midi_out_parts_begin();
+    tiles_midi_note_on(channel, note, velocity);
+    tiles_midi_out_parts_end();
+}
+
+static void part_note_off(uint8_t channel, uint8_t note, uint8_t release_velocity) {
+    tiles_midi_out_parts_begin();
+    tiles_midi_note_off(channel, note, release_velocity);
+    tiles_midi_out_parts_end();
+}
+
+
 /* The mode menu (MENU_SLOTS below) is laid out by family, one column each,
  * the first of the family on row 1 (nearest the buttons), and each family
  * has its own colour family, so a column reads as one kind of mode:
@@ -643,7 +660,7 @@ static void seq_end_current_note(uint8_t lane) {
     }
     /* One Note-Off per note fired for the step. */
     for (uint8_t i = 0; i < s_seq_sounding_note_count[lane]; i++) {
-        tiles_midi_note_off(s_seq_sounding_channel[lane], s_seq_sounding_notes[lane][i], 0u); /* clock-fired: release velocity 0 */
+        part_note_off(s_seq_sounding_channel[lane], s_seq_sounding_notes[lane][i], 0u); /* clock-fired: release velocity 0 */
         tiles_cv_gate_note_off(s_seq_sounding_notes[lane][i]);
     }
     /* Stop the haptic only if this note started one. One kick/stop per step,
@@ -679,13 +696,13 @@ static void seq_fire_note(uint8_t lane, uint8_t step) {
         }
         for (uint8_t i = 0; i < count; i++) {
             uint8_t note = tiles_note_map_quantize_to_scale(pat->step_notes[step][i]);
-            tiles_midi_note_on(channel, note, OP_SEQ_VELOCITY);
+            part_note_on(channel, note, OP_SEQ_VELOCITY);
             tiles_cv_gate_note_on(note, OP_SEQ_VELOCITY);
             s_seq_sounding_notes[lane][i] = note;
         }
     } else {
         uint8_t note = tiles_note_map_get_note(pad);
-        tiles_midi_note_on(channel, note, OP_SEQ_VELOCITY);
+        part_note_on(channel, note, OP_SEQ_VELOCITY);
         tiles_cv_gate_note_on(note, OP_SEQ_VELOCITY);
         s_seq_sounding_notes[lane][0] = note;
         count = 1u;
@@ -2156,7 +2173,7 @@ static void seq_capture_end_one_sounding_note(uint8_t pad) {
         if (s_seq_capture_live_pads[i] != pad) {
             continue;
         }
-        tiles_midi_note_off(s_seq_lane_channel[s_seq_edit_lane], s_seq_capture_live_notes[i], 0u); /* ended by release/exit: release velocity 0 */
+        part_note_off(s_seq_lane_channel[s_seq_edit_lane], s_seq_capture_live_notes[i], 0u); /* ended by release/exit: release velocity 0 */
         tiles_cv_gate_note_off(s_seq_capture_live_notes[i]);
         tiles_haptics_stop(pad);
         for (uint8_t j = i; (uint8_t)(j + 1u) < s_seq_capture_live_count; j++) {
@@ -2171,7 +2188,7 @@ static void seq_capture_end_one_sounding_note(uint8_t pad) {
 /* Ends every live capture note (exit, or a clean slate). */
 static void seq_capture_end_all_sounding_notes(void) {
     for (uint8_t i = 0; i < s_seq_capture_live_count; i++) {
-        tiles_midi_note_off(s_seq_lane_channel[s_seq_edit_lane], s_seq_capture_live_notes[i], 0u); /* ended by exit: release velocity 0 */
+        part_note_off(s_seq_lane_channel[s_seq_edit_lane], s_seq_capture_live_notes[i], 0u); /* ended by exit: release velocity 0 */
         tiles_cv_gate_note_off(s_seq_capture_live_notes[i]);
         tiles_haptics_stop(s_seq_capture_live_pads[i]);
     }
@@ -2257,7 +2274,7 @@ static void seq_capture_handle_taps(tiles_midi_clock_state_t clock) {
             }
             tiles_midi_out_batch_begin(); /* ends below, then the haptic (an I2C write) */
             for (uint8_t i = 0; i < note_count; i++) {
-                tiles_midi_note_on(s_seq_lane_channel[lane], notes[i], velocity);
+                part_note_on(s_seq_lane_channel[lane], notes[i], velocity);
                 tiles_cv_gate_note_on(notes[i], velocity);
                 if (s_seq_capture_live_count < OP_SEQ_MAX_NOTES_PER_STEP) {
                     s_seq_capture_live_pads[s_seq_capture_live_count] = pad;
@@ -3712,12 +3729,13 @@ static void song_store_load_all(void) {
 
 /* Start/stop is a plain touch toggle (resolved on release), no press
  * needed. */
+
 static void song_end_current_note(uint8_t slot) {
     if (!s_song_note_sounding[slot]) {
         return;
     }
     for (uint8_t i = 0; i < s_song_sounding_note_count[slot]; i++) {
-        tiles_midi_note_off(s_song_slot_channel[slot], s_song_sounding_notes[slot][i], 0u); /* clock-fired: release velocity 0 */
+        part_note_off(s_song_slot_channel[slot], s_song_sounding_notes[slot][i], 0u); /* clock-fired: release velocity 0 */
         tiles_cv_gate_note_off(s_song_sounding_notes[slot][i]);
     }
     s_song_note_sounding[slot] = false;
@@ -4267,7 +4285,7 @@ static void song_enter_step(uint8_t slot, uint8_t step) {
         return;
     }
     for (uint8_t i = 0; i < count; i++) {
-        tiles_midi_note_on(s_song_slot_channel[slot], notes[i], OP_SONG_VELOCITY);
+        part_note_on(s_song_slot_channel[slot], notes[i], OP_SONG_VELOCITY);
         tiles_cv_gate_note_on(notes[i], OP_SONG_VELOCITY);
         s_song_sounding_notes[slot][i] = notes[i];
     }
@@ -4329,7 +4347,7 @@ static void song_capture_end_one_sounding_note(uint8_t pad) {
     uint8_t slot = s_song_capture_slot - 1u;
     for (uint8_t i = 0; i < s_song_capture_live_count; i++) {
         if (s_song_capture_live_pads[i] == pad) {
-            tiles_midi_note_off(s_song_slot_channel[slot], s_song_capture_live_notes[i], 0u); /* ended by release/exit: release velocity 0 */
+            part_note_off(s_song_slot_channel[slot], s_song_capture_live_notes[i], 0u); /* ended by release/exit: release velocity 0 */
             tiles_cv_gate_note_off(s_song_capture_live_notes[i]);
             for (uint8_t j = i; (uint8_t)(j + 1u) < s_song_capture_live_count; j++) {
                 s_song_capture_live_pads[j] = s_song_capture_live_pads[j + 1u];
@@ -4344,7 +4362,7 @@ static void song_capture_end_one_sounding_note(uint8_t pad) {
 static void song_capture_end_all_sounding_notes(void) {
     uint8_t slot = s_song_capture_slot - 1u;
     for (uint8_t i = 0; i < s_song_capture_live_count; i++) {
-        tiles_midi_note_off(s_song_slot_channel[slot], s_song_capture_live_notes[i], 0u); /* ended by exit: release velocity 0 */
+        part_note_off(s_song_slot_channel[slot], s_song_capture_live_notes[i], 0u); /* ended by exit: release velocity 0 */
         tiles_cv_gate_note_off(s_song_capture_live_notes[i]);
     }
     s_song_capture_live_count = 0u;
@@ -4401,7 +4419,7 @@ static void song_capture_handle_taps(tiles_midi_clock_state_t clock) {
             }
             tiles_midi_out_batch_begin(); /* ends below, then the haptic (an I2C write) */
             for (uint8_t i = 0; i < note_count; i++) {
-                tiles_midi_note_on(s_song_slot_channel[slot], notes[i], velocity);
+                part_note_on(s_song_slot_channel[slot], notes[i], velocity);
                 tiles_cv_gate_note_on(notes[i], velocity);
                 if (s_song_capture_live_count < OP_SONG_MAX_NOTES_PER_STEP) {
                     s_song_capture_live_pads[s_song_capture_live_count] = pad;

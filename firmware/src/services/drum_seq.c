@@ -129,22 +129,28 @@ static bool volca_channel(uint8_t note, uint8_t *channel) {
     return true;
 }
 
+/* On the Parts USB port either way (midi/midi_ports.h): Volca's channels
+ * 1-16 would otherwise reach a DAW's MPE track on the MIDI port. */
 static void drum_midi_on(uint8_t note, uint8_t velocity) {
     uint8_t channel;
+    tiles_midi_out_parts_begin();
     if (!s_volca) {
         tiles_midi_note_on(TILES_MIDI_CH_DRUMS, note, velocity);
     } else if (volca_channel(note, &channel)) {
         tiles_midi_note_on(channel, TILES_VOLCA_NOTE, velocity);
     }
+    tiles_midi_out_parts_end();
 }
 
 static void drum_midi_off(uint8_t note) {
     uint8_t channel;
+    tiles_midi_out_parts_begin();
     if (!s_volca) {
         tiles_midi_note_off(TILES_MIDI_CH_DRUMS, note, 0u);
     } else if (volca_channel(note, &channel)) {
         tiles_midi_note_off(channel, TILES_VOLCA_NOTE, 0u);
     }
+    tiles_midi_out_parts_end();
 }
 
 /* The mode's color: orange, or cyan in Volca mode. */

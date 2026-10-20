@@ -279,8 +279,8 @@ void tiles_midi_in_scan(void) {
     uint8_t packet[4];
     while (tud_midi_n_packet_read(0, packet)) {
         uint8_t cable = (uint8_t)(packet[0] >> 4);
-        if (cable >= TILES_USB_MIDI_NUM_CABLES) {
-            continue;
+        if (cable >= TILES_USB_MIDI_NUM_CABLES || cable == TILES_USB_MIDI_CABLE_PARTS) {
+            continue; /* PARTS is output only (midi/midi_ports.h) */
         }
         midi_source_t source = cable == TILES_USB_MIDI_CABLE_DAW ? TILES_MIDI_PORT_DAW : TILES_MIDI_PORT_MAIN;
         uint8_t n = tiles_usb_midi_cin_length(packet[0]);

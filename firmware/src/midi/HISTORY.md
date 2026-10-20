@@ -518,3 +518,19 @@ owner's feedback that prompted each change.
   boards 2 and 4 were renamed in its MIDI setup after flashing
   (`daw-integration/README.md`, "stale device"). The string callback
   builds the name with snprintf like the CDC one (`desc_str_set()`).
+- **A third USB-MIDI port, "Parts" (0.9.3, 2026-10-19).** Asked: "we need
+  a way to use MPE and target all MPE channels in Ableton without receiving
+  the other channels running other features". An MPE track in Live listens
+  to all 16 channels of its port, so on one port it also got the drums
+  (10), Bouncing notes and games (11), chords (12), sequencer lanes
+  (13-16), Song tracks (2-9) and Volca (1-16).
+  - usb_descriptors.c: cable 2, jack string "Parts" (TinyUSB's per-cable
+    jack macros, as for MIDI and DAW). Output only: midi_in.c ignores it.
+  - midi_out.c: channel messages on channels 10-16 go to it by themselves;
+    tiles_midi_out_parts_begin()/end() send anything else there (Song
+    tracks and the sequencer lanes in op_mode.c part_note_on/off(), drums
+    and Volca in drum_seq.c drum_midi_on/off()). Panic also goes out on it.
+    MAIN keeps the MPE zone, pedals, clock and Start/Stop. DIN carries both.
+  - Setting midi.parts_port (0x0502): `parts` (default) or `main` (the old
+    single port). macOS may need its cached device deleted in MIDI Studio
+    before the new port shows (daw-integration/README.md).

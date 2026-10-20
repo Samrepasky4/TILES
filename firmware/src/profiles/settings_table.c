@@ -9,6 +9,7 @@
 #include "expression.h"
 #include "lighting.h"
 #include "midi_clock.h"
+#include "midi_out.h"
 #include "op_mode.h"
 #include "pedal.h"
 #include "storage_flash.h"
@@ -38,6 +39,9 @@ static tiles_setting_value_t F(float v) {
 /* ---- MIDI clock ---- */
 static tiles_setting_value_t get_clock_lead(void) { return U(tiles_midi_clock_get_lead_ms()); }
 static void set_clock_lead(tiles_setting_value_t v) { tiles_midi_clock_set_lead_ms((uint16_t)v.u); }
+/* 0 = parts on their own USB port (midi/midi_ports.h), 1 = on the MIDI port. */
+static tiles_setting_value_t get_parts_port(void) { return U(tiles_midi_out_get_parts_separate() ? 0u : 1u); }
+static void set_parts_port(tiles_setting_value_t v) { tiles_midi_out_set_parts_separate(v.u == 0u); }
 /* ---- pedal ---- */
 static tiles_setting_value_t get_pedal_mode(void) { return U((uint32_t)tiles_pedal_get_mode()); }
 static void set_pedal_mode(tiles_setting_value_t v) { tiles_pedal_set_mode((tiles_pedal_mode_t)v.u); }
@@ -160,6 +164,7 @@ static const char *const PEDAL_POLARITY_NAMES[] = {"normally_open", "normally_cl
 /* services/pedal.h's tiles_pedal_sustain_style_t: who holds released notes. */
 static const char *const PEDAL_SUSTAIN_STYLE_NAMES[] = {"synth", "hold"};
 static const char *const DIN_TYPE_NAMES[] = {"a", "b"};
+static const char *const PARTS_PORT_NAMES[] = {"parts", "main"};
 
 /* THE TABLE. One row per setting. Rules:
  *  - `id` is permanent (it is what is written to flash and what a binary protocol will use): never
@@ -234,6 +239,11 @@ static const tiles_setting_def_t TABLE[] = {
      * notes land on its grid (services/midi_clock.h); 0 = off. */
     TILES_SETTING(0x0501, "midi.clock_lead_ms", TILES_SETTING_UINT, {.u = 0}, {.u = 50}, NULL, get_clock_lead,
                   set_clock_lead),
+    /* Where the parts (sequencer lanes, drums, Volca, Bouncing notes, Song
+     * tracks, chords, games) go over USB: their own "Parts" port, so a DAW's
+     * MPE track on the MIDI port hears only the MPE zone; or the MIDI port. */
+    TILES_SETTING(0x0502, "midi.parts_port", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, PARTS_PORT_NAMES, get_parts_port,
+                  set_parts_port),
     /* features */
     TILES_SETTING(0x0600, "features.melodic_harmonics", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_harmonics,
                   set_harmonics),
