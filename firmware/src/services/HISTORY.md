@@ -10109,3 +10109,13 @@ change. Search it by file or feature name.
     sequencer's default step notes and the other modes keep Rows. Tested.
   - Menu colours: the Feel menu stays magenta; Light effects is amber (its
     underglow and the Off pad); Layouts cyan (its pads and underglow).
+- **Touch demos a light effect, a press picks it (0.9.8, 2026-10-22).**
+  Asked: "make it so that capacitive touch demos the light effects". In the
+  Light effects menu, touching an effect's pad (no press) plays a looping
+  scripted phrase (eight hits over 1.8 s) through that effect across the
+  grid while the finger rests; lifting goes back to the menu with the
+  effect in use restored; pressing past the strike depth picks it (a
+  kick) and closes. Layouts still pick on touch. The deeper menus now draw
+  through tiles_lighting_set_standby_frame(): a whole frame, three pads a
+  scan, biggest change first (the demo animates every pad; sent whole,
+  each frame would hold the loop ~17 ms).

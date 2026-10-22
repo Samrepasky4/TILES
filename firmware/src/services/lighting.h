@@ -108,6 +108,11 @@ void tiles_lighting_set_mode_underglow(float r, float g, float b);
  * floor: {0,0,0} is black. No-op unless standby is active. */
 void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, float b);
 
+/* A whole standby frame (index 0 = pad 1), drawn a few pads at a time: the
+ * `max_writes` pads that differ most from what they show. A pad write is
+ * ~0.7 ms, so an animated frame sent whole would hold the main loop. */
+void tiles_lighting_set_standby_frame(const float rgb[][3], uint8_t max_writes);
+
 /* Sets underglow pixel 0-3 (chain order), each channel 0.0-1.0 scaled by
  * TILES_LIGHTING_UNDERGLOW_LEVEL. No-op unless standby is active. */
 void tiles_lighting_set_standby_underglow_rgb(uint8_t pixel_index, float r, float g, float b);

@@ -1005,6 +1005,26 @@ void tiles_lighting_set_standby_active(bool active) {
     }
 }
 
+void tiles_lighting_set_standby_frame(const float rgb[][3], uint8_t max_writes) {
+    for (uint8_t n = 0; n < max_writes; n++) {
+        uint8_t best = TILES_NUM_PADS;
+        float best_change = 0.01f;
+        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+            const tiles_rgb01_t *shown = &s_pad_standby_rgb[i];
+            float change = fmaxf(fabsf(clamp01(rgb[i][0]) - shown->r),
+                                 fmaxf(fabsf(clamp01(rgb[i][1]) - shown->g), fabsf(clamp01(rgb[i][2]) - shown->b)));
+            if (change >= best_change) {
+                best_change = change;
+                best = i;
+            }
+        }
+        if (best == TILES_NUM_PADS) {
+            return;
+        }
+        tiles_lighting_set_standby_pad_rgb((uint8_t)(best + 1u), rgb[best][0], rgb[best][1], rgb[best][2]);
+    }
+}
+
 void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, float b) {
     if (!s_standby_active || logical_pad < 1u || logical_pad > TILES_NUM_PADS) {
         return;

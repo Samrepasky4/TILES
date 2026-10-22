@@ -56,7 +56,9 @@
  *                     (note_map.h), the rest empty.
  * Each menu has its own colour: the Feel menu magenta, Light effects amber
  * (underglow and the Off pad), Layouts cyan (pads and underglow).
- * The current pick pulses white. A pad picks and closes; any button closes
+ * The current pick pulses white. Light effects: touching an effect's pad
+ * demos it on the whole grid while the finger rests, pressing it picks it.
+ * Layouts: a touch picks. Either closes after a pick; any button closes
  * without picking. Settings look.play_effect and layout.melodic.
  *
  * ---- Circle + square held 2 s: MPE on/off -----------------------------
