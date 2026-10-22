@@ -324,8 +324,8 @@ static void close_deep(void) {
 
 /* Light effects menu: pad 1 off, pads 2-6 the white effects, 7-12 the
  * colour ones (light_effects.h order), 13-24 empty for later. Layouts
- * menu: pad 1 rows, pad 2 columns (note_map.h), the rest empty. A pad
- * picks and closes; any button closes without picking. */
+ * menu: pads 1-7 in note_map.h's order, the rest empty. A pad picks and
+ * closes; any button closes without picking. */
 static bool deep_slot_valid(uint8_t pad) {
     return s_deep == DEEP_EFFECTS ? pad <= (uint8_t)TILES_FX_COUNT : pad <= (uint8_t)TILES_NUM_LAYOUTS;
 }
@@ -334,8 +334,15 @@ static uint8_t deep_selected_pad(void) {
     return s_deep == DEEP_EFFECTS ? (uint8_t)(tiles_fx_get() + 1u) : (uint8_t)(tiles_note_map_get_layout() + 1u);
 }
 
+/* Each menu has its own colour so they can't be mixed up: the Feel menu
+ * magenta, Light effects amber (its underglow and the Off pad), Layouts
+ * cyan (its pads and underglow). */
+static const float DEEP_EFFECTS_RGB[3] = {1.0f, 0.55f, 0.0f};
+static const float DEEP_LAYOUTS_RGB[3] = {0.0f, 0.8f, 1.0f};
+
 /* What an unpicked slot shows: the effect's character (white for the white
- * ones, its colour for the others), dim magenta for a layout, dark empty. */
+ * ones, its colour for the others, Off in amber), a layout in cyan, dark
+ * empty. */
 static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
     static const float COLOURS[6][3] = {
         {1.0f, 0.0f, 1.0f},   /* Prism ripple */
@@ -350,13 +357,15 @@ static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
         return;
     }
     if (s_deep == DEEP_LAYOUTS) {
-        rgb[0] = SENTIA_MAGENTA_R * SUBMENU_UNSELECTED_LEVEL;
-        rgb[1] = SENTIA_MAGENTA_G * SUBMENU_UNSELECTED_LEVEL;
-        rgb[2] = SENTIA_MAGENTA_B * SUBMENU_UNSELECTED_LEVEL;
+        rgb[0] = DEEP_LAYOUTS_RGB[0] * SUBMENU_UNSELECTED_LEVEL;
+        rgb[1] = DEEP_LAYOUTS_RGB[1] * SUBMENU_UNSELECTED_LEVEL;
+        rgb[2] = DEEP_LAYOUTS_RGB[2] * SUBMENU_UNSELECTED_LEVEL;
         return;
     }
     if (pad == 1u) {
-        rgb[0] = rgb[1] = rgb[2] = 0.12f; /* off */
+        rgb[0] = DEEP_EFFECTS_RGB[0] * SUBMENU_UNSELECTED_LEVEL; /* off */
+        rgb[1] = DEEP_EFFECTS_RGB[1] * SUBMENU_UNSELECTED_LEVEL;
+        rgb[2] = DEEP_EFFECTS_RGB[2] * SUBMENU_UNSELECTED_LEVEL;
     } else if (pad <= (uint8_t)TILES_FX_WARMTH + 1u) {
         rgb[0] = rgb[1] = rgb[2] = 0.35f;
     } else {
@@ -402,8 +411,9 @@ static void handle_deep_menu(uint32_t now_ms) {
         }
         tiles_lighting_set_standby_pad_rgb(pad, rgb[0], rgb[1], rgb[2]);
     }
+    const float *glow = s_deep == DEEP_EFFECTS ? DEEP_EFFECTS_RGB : DEEP_LAYOUTS_RGB;
     for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
+        tiles_lighting_set_standby_underglow_rgb(i, glow[0], glow[1], glow[2]);
     }
 }
 

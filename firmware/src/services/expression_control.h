@@ -51,8 +51,11 @@
  *                     square together or one after the other): Light
  *                     effects. Pad 1 off (default), 2-6 the white effects,
  *                     7-12 the colour ones (light_effects.h), 13-24 empty.
- *   circle + triangle Layouts: pad 1 rows (default), 2 columns
+ *   circle + triangle Layouts: pads 1-7 Rows (default), Columns,
+ *                     Fourths, Keys, Fifths, Tonnetz, Quarter tones
  *                     (note_map.h), the rest empty.
+ * Each menu has its own colour: the Feel menu magenta, Light effects amber
+ * (underglow and the Off pad), Layouts cyan (pads and underglow).
  * The current pick pulses white. A pad picks and closes; any button closes
  * without picking. Settings look.play_effect and layout.melodic.
  *

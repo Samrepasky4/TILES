@@ -531,6 +531,16 @@ static tiles_rgb01_t pad_look_rgb(uint8_t pad_index) {
         return (tiles_rgb01_t){0.0f, 0.0f, level};
     }
 
+    /* Layouts (note_map.h): a pad with no note (Keys' gaps) is dark; a
+     * quarter tone a dim Sentia blue, apart from the semitones. */
+    if (!tiles_note_map_pad_has_note(logical_pad)) {
+        return (tiles_rgb01_t){0.0f, 0.0f, 0.0f};
+    }
+    if (tiles_note_map_get_pad_cents(logical_pad) != 0u) {
+        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT) * 0.35f;
+        return (tiles_rgb01_t){0.58f * level, 0.67f * level, 0.98f * level};
+    }
+
     /* Custom pad colours (advanced), melodic mode only: the map is drawn for
      * melodic mode's layout, so chord mode's melody grid keeps the scheme. */
     if (s_custom_pads_enabled && !tiles_note_map_is_chord_mode_active()) {

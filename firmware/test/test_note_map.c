@@ -153,6 +153,47 @@ static void check_columns_layout(void) {
     tiles_note_map_set_layout(TILES_LAYOUT_ROWS);
 }
 
+/* Fourths, Keys, Fifths, Tonnetz, Quarter tones; and layouts only where
+ * enabled (melodic mode). */
+static void check_more_layouts(void) {
+    uint8_t B = TILES_NOTE_MAP_BASE_NOTE;
+    tiles_note_map_set_layout(TILES_LAYOUT_FOURTHS);
+    CHECK(tiles_note_map_get_note(19) == B && tiles_note_map_get_note(13) == B + 5u, "fourths: a row up is +5");
+    tiles_note_map_set_scale(TILES_SCALE_IONIAN);
+    CHECK(tiles_note_map_get_note(13) == B + 5u, "fourths in key: a row up is 3 steps (F)");
+    tiles_note_map_set_scale(TILES_SCALE_CHROMATIC);
+
+    tiles_note_map_set_layout(TILES_LAYOUT_KEYS);
+    CHECK(tiles_note_map_get_note(19) == B && tiles_note_map_get_note(20) == B + 2u, "keys: white row C D");
+    CHECK(tiles_note_map_get_note(13) == B + 1u, "keys: C# above C");
+    CHECK(!tiles_note_map_pad_has_note(15), "keys: no key above E");
+    CHECK(tiles_note_map_pad_has_note(16) && tiles_note_map_get_note(16) == B + 6u, "keys: F# above F");
+    CHECK(tiles_note_map_get_note(7) == B + 11u && tiles_note_map_get_note(8) == B + 12u, "keys: upper pair starts B C");
+    CHECK(!tiles_note_map_pad_has_note(1), "keys: no key above B");
+    CHECK(tiles_note_map_is_root_pad(19) && tiles_note_map_is_root_pad(8), "keys: both Cs are roots");
+    tiles_note_map_set_scale(TILES_SCALE_IONIAN);
+    CHECK(!tiles_note_map_is_natural_pad(13), "keys in C major: C# dark");
+    tiles_note_map_set_scale(TILES_SCALE_CHROMATIC);
+
+    tiles_note_map_set_layout(TILES_LAYOUT_FIFTHS);
+    CHECK(tiles_note_map_get_note(19) == B - 12u && tiles_note_map_get_note(13) == B - 5u, "fifths: an octave down, a row up is +7");
+
+    tiles_note_map_set_layout(TILES_LAYOUT_TONNETZ);
+    uint8_t c = tiles_note_map_get_note(19), g = tiles_note_map_get_note(20), e = tiles_note_map_get_note(13);
+    CHECK((g - c) % 12u == 7u && (e - c) % 12u == 4u, "tonnetz: right a fifth, up a major third (C, G, E: a C major L)");
+
+    tiles_note_map_set_layout(TILES_LAYOUT_QUARTER_TONES);
+    CHECK(tiles_note_map_get_note(19) == B && tiles_note_map_get_pad_cents(19) == 0u, "quarter tones: pad 19 C");
+    CHECK(tiles_note_map_get_note(20) == B && tiles_note_map_get_pad_cents(20) == 50u, "quarter tones: pad 20 C + 50 cents");
+    CHECK(tiles_note_map_get_note(21) == B + 1u && tiles_note_map_get_pad_cents(21) == 0u, "quarter tones: pad 21 C#");
+    CHECK(!tiles_note_map_is_root_pad(20), "quarter tones: a quarter tone is no root");
+
+    tiles_note_map_set_layout_enabled(false);
+    CHECK(tiles_note_map_get_note(14) == B + 7u && tiles_note_map_get_pad_cents(20) == 0u, "disabled: Rows (pad 14 G)");
+    tiles_note_map_set_layout_enabled(true);
+    tiles_note_map_set_layout(TILES_LAYOUT_ROWS);
+}
+
 /* Chord mode's strip has its own octave; the melody grid keeps the main one. */
 static void check_chord_octave(void) {
     tiles_note_map_set_chord_mode(true);
@@ -182,6 +223,7 @@ int main(void) {
     check_out_of_range();
     check_thirds();
     check_columns_layout();
+    check_more_layouts();
     check_chord_octave();
 
     if (g_failures == 0) {

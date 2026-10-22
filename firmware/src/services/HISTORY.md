@@ -10089,3 +10089,23 @@ change. Search it by file or feature name.
     the melody; the LEDs show the chords' octave while circle is held.
   - Named (2026-10-22): the user picked plain names over marketing ones:
     the layouts are Rows (default) and Columns.
+- **Five more layouts; the deeper menus get their own colours (0.9.7,
+  2026-10-22).** From the layouts preview (TILES Layouts artifact) the user
+  kept Fourths, Keys, Fifths, Tonnetz and Quarter tones and skipped Thirds,
+  Snake, Mirror and Octave stacks; and asked for the new sub-menus to have
+  different colours "so we don't confuse them".
+  - note_map.c: Fourths and Fifths are degree layouts (rows apart by that
+    interval in scale steps, round(n * semitones / 12); Fifths an octave
+    down). Keys, Tonnetz and Quarter tones place pitches
+    (absolute_semitones(), -1 = no note, so Tonnetz folds into C3..F#5, not
+    below: a negative value read as a gap): a scale only lights them, roles
+    from the pitch against the key. Keys' gaps have no note
+    (tiles_note_map_pad_has_note(): expression.c strikes nothing there,
+    lighting.c keeps them dark). Quarter tones' odd pads report 50 cents
+    (tiles_note_map_get_pad_cents()): expression.c centres that note's bend
+    50 cents up (bend_center_for(), MPE only; tilt bends around it), and
+    lighting.c shows them a dim Sentia blue. Layouts apply in melodic mode
+    only (tiles_note_map_set_layout_enabled() from op_mode.c), so the
+    sequencer's default step notes and the other modes keep Rows. Tested.
+  - Menu colours: the Feel menu stays magenta; Light effects is amber (its
+    underglow and the Off pad); Layouts cyan (its pads and underglow).

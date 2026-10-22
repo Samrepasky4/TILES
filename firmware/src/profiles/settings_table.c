@@ -176,7 +176,7 @@ static const char *const PARTS_PORT_NAMES[] = {"parts", "main"};
 static const char *const PLAY_EFFECT_NAMES[] = {"off",          "afterglow",    "ripple",  "cross",
                                                 "halo",         "warmth",       "prism_ripple", "touch_colour",
                                                 "heatmap",      "fireworks",    "rise",    "ink"};
-static const char *const LAYOUT_NAMES[] = {"rows", "columns"};
+static const char *const LAYOUT_NAMES[] = {"rows", "columns", "fourths", "keys", "fifths", "tonnetz", "quarter_tones"};
 
 /* THE TABLE. One row per setting. Rules:
  *  - `id` is permanent (it is what is written to flash and what a binary protocol will use): never
@@ -296,8 +296,8 @@ static const tiles_setting_def_t TABLE[] = {
     TILES_SETTING(0x0808, "modes.bounce", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_bounce,
                   set_modes_bounce),
     /* Melodic mode's layout (Feel menu, circle + triangle; note_map.h). */
-    TILES_SETTING(0x0900, "layout.melodic", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, LAYOUT_NAMES, get_layout,
-                  set_layout),
+    TILES_SETTING(0x0900, "layout.melodic", TILES_SETTING_ENUM, {.u = 0}, {.u = TILES_NUM_LAYOUTS - 1u}, LAYOUT_NAMES,
+                  get_layout, set_layout),
     TILES_SETTING(0x0705, "color.custom_pads", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_custom_pads,
                   set_custom_pads),
     PAD_COLOR_LIST(PAD_COLOR_ROW_COMMA)

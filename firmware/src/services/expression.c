@@ -410,6 +410,9 @@ typedef struct {
     bool pitch_bend_baseline_settled;
     uint32_t pitch_bend_claim_ms;
     uint16_t pitch_bend_last_sent;
+    /* The bend's centre for this note: 8192, or above it for a quarter tone
+     * (bend_center_for()). */
+    uint16_t bend_center;
     /* Run tracking for PITCH_BEND_ARM_MS: run_active = the delta is outside
      * the deadzone; run_positive = which side (a sign flip starts a new run);
      * run_start_ms = when this run began. */
@@ -941,6 +944,7 @@ void tiles_expression_init(void) {
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
         s_pads[i] = (pad_expr_t){0};
         s_pads[i].state = PAD_STATE_IDLE;
+        s_pads[i].bend_center = PITCH_BEND_CENTER;
     }
     for (uint8_t i = 0; i < TILES_MIDI_SHARED_POOL_SIZE; i++) {
         if (s_mpe_channels[i].in_use) {
@@ -1057,8 +1061,7 @@ static uint16_t pitch_bend_14bit_from_cosine_delta(pad_expr_t *s, float delta, u
     if (normalized < -1.0f) {
         normalized = -1.0f;
     }
-    int32_t bend = (int32_t)PITCH_BEND_CENTER +
-                   (int32_t)(normalized * 8191.0f * PITCH_BEND_WIRE_RANGE_COMPENSATION);
+    int32_t bend = (int32_t)s->bend_center + (int32_t)(normalized * 8191.0f * PITCH_BEND_WIRE_RANGE_COMPENSATION);
     if (bend < 0) {
         bend = 0;
     }
@@ -1156,8 +1159,8 @@ static void center_and_deactivate_all_bending_pads(void) {
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
         pad_expr_t *s = &s_pads[i];
         if (s->state == PAD_STATE_NOTE_ON && s->pitch_bend_active) {
-            tiles_midi_send_pitch_bend(s->midi_channel, PITCH_BEND_CENTER);
-            s->pitch_bend_last_sent = PITCH_BEND_CENTER;
+            tiles_midi_send_pitch_bend(s->midi_channel, s->bend_center);
+            s->pitch_bend_last_sent = s->bend_center;
             s->pitch_bend_active = false;
         }
     }
@@ -1185,7 +1188,7 @@ float tiles_expression_get_pad_bend_amount(uint8_t logical_pad) {
     if (s->state != PAD_STATE_NOTE_ON || !s->pitch_bend_active) {
         return 0.0f;
     }
-    float amount = fabsf(((float)s->pitch_bend_last_sent - (float)PITCH_BEND_CENTER) /
+    float amount = fabsf(((float)s->pitch_bend_last_sent - (float)s->bend_center) /
                          (8191.0f * PITCH_BEND_WIRE_RANGE_COMPENSATION));
     return amount > 1.0f ? 1.0f : amount;
 }
@@ -1312,6 +1315,18 @@ static uint8_t aftertouch_from_depth(uint16_t depth) {
 
 /* Starts pitch bend tracking for `pad`'s new note, latching whether bend
  * is enabled now. The baseline is captured later (PITCH_BEND_SETTLE_MS). */
+/* Quarter tones (note_map.h): the pad's note sits `cents` up, so its bend
+ * is centred there, in the wire's 48-semitone scale. MPE only: with MPE
+ * off the bend is channel 1's, every note's. */
+static uint16_t bend_center_for(uint8_t pad) {
+    uint8_t cents = tiles_note_map_get_pad_cents(pad);
+    if (cents == 0u || !s_mpe_enabled) {
+        return PITCH_BEND_CENTER;
+    }
+    float wire = 8192.0f * ((float)cents / 100.0f) / PITCH_BEND_MPE_SPEC_DEFAULT_RANGE_SEMITONES;
+    return (uint16_t)((int32_t)PITCH_BEND_CENTER + (int32_t)(wire + 0.5f));
+}
+
 static void init_pitch_bend_for_pad(pad_expr_t *s, uint8_t pad, uint32_t now_ms) {
     s->pitch_bend_active = s_pitch_bend_enabled;
     if (!s->pitch_bend_active) {
@@ -1337,7 +1352,7 @@ static void init_pitch_bend_for_pad(pad_expr_t *s, uint8_t pad, uint32_t now_ms)
     s->pitch_bend_smoothed_delta = 0.0f;
     s->pitch_bend_baseline_settled = false;
     s->pitch_bend_claim_ms = now_ms;
-    s->pitch_bend_last_sent = PITCH_BEND_CENTER;
+    s->pitch_bend_last_sent = s->bend_center;
     s->pitch_bend_run_active = false;
     /* Reset, so the previous note's energy can't bias the vibrato detector. */
     s->pitch_bend_wiggle_energy = 0.0f;
@@ -1576,7 +1591,7 @@ void tiles_expression_scan(void) {
              * left to finish. op_mode is asked per pad (tiles_op_mode_owns_pad()):
              * chord mode only claims its strip, the melody pads still play here. */
             if (touched && !tiles_expression_control_owns_pad_grid() && !tiles_octave_control_is_transpose_active() &&
-                !tiles_op_mode_owns_pad(pad) && !tiles_game_mode_is_active()) {
+                !tiles_op_mode_owns_pad(pad) && !tiles_game_mode_is_active() && tiles_note_map_pad_has_note(pad)) {
                 begin_awaiting_strike(s, pad, now_ms);
                 /* Touch-only haptic tick, whether or not it becomes a press; not for
                  * a finger that never left (see PRESSED_DROPOUT_GRACE_MS). */
@@ -1649,6 +1664,7 @@ void tiles_expression_scan(void) {
                 release_held_notes_of_pitch(s->active_note);
                 s->midi_channel =
                     s_mpe_enabled ? claim_mpe_channel(pad, s->active_note) : TILES_MIDI_MPE_MASTER_CHANNEL;
+                s->bend_center = bend_center_for(pad);
                 init_pitch_bend_for_pad(s, pad, now_ms);
                 s->touch_claim_seq = s_next_mpe_claim_seq++;
                 if (!s_mpe_enabled) {
@@ -1657,6 +1673,10 @@ void tiles_expression_scan(void) {
                     s_non_mpe_owner_pad = pad;
                 }
                 tiles_midi_send_note_setup(s->midi_channel);
+                if (s->bend_center != PITCH_BEND_CENTER) {
+                    tiles_midi_send_pitch_bend(s->midi_channel, s->bend_center); /* a quarter tone up */
+                    s->pitch_bend_last_sent = s->bend_center;
+                }
                 tiles_midi_note_on(s->midi_channel, s->active_note, velocity);
                 tiles_midi_out_batch_end();
                 tiles_cv_gate_note_on(s->active_note, velocity);

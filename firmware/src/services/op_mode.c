@@ -2199,6 +2199,8 @@ static void set_active_mode(tiles_op_mode_t mode) {
      * state from what's touched now, so a finger resting on a chord pad when
      * the mode starts doesn't fire a chord. */
     tiles_note_map_set_chord_mode(mode == OP_MODE_CHORD);
+    /* The Layouts menu's layouts are melodic mode's (note_map.h). */
+    tiles_note_map_set_layout_enabled(mode == OP_MODE_MELODIC);
     if (mode == OP_MODE_CHORD) {
         for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
             s_chord_pad_touched[pad - 1u] = tiles_touch_is_touched(pad);
