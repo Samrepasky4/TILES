@@ -7,9 +7,11 @@
 #include "cv_gate.h"
 #include "din_midi.h"
 #include "expression.h"
+#include "light_effects.h"
 #include "lighting.h"
 #include "midi_clock.h"
 #include "midi_out.h"
+#include "note_map.h"
 #include "op_mode.h"
 #include "pedal.h"
 #include "storage_flash.h"
@@ -36,6 +38,11 @@ static tiles_setting_value_t F(float v) {
     return x;
 }
 
+/* ---- light effect, layout ---- */
+static tiles_setting_value_t get_play_effect(void) { return U((uint32_t)tiles_fx_get()); }
+static void set_play_effect(tiles_setting_value_t v) { tiles_fx_set((tiles_fx_t)v.u); }
+static tiles_setting_value_t get_layout(void) { return U((uint32_t)tiles_note_map_get_layout()); }
+static void set_layout(tiles_setting_value_t v) { tiles_note_map_set_layout((tiles_melodic_layout_t)v.u); }
 /* ---- MIDI clock ---- */
 static tiles_setting_value_t get_clock_lead(void) { return U(tiles_midi_clock_get_lead_ms()); }
 static void set_clock_lead(tiles_setting_value_t v) { tiles_midi_clock_set_lead_ms((uint16_t)v.u); }
@@ -165,6 +172,11 @@ static const char *const PEDAL_POLARITY_NAMES[] = {"normally_open", "normally_cl
 static const char *const PEDAL_SUSTAIN_STYLE_NAMES[] = {"synth", "hold"};
 static const char *const DIN_TYPE_NAMES[] = {"a", "b"};
 static const char *const PARTS_PORT_NAMES[] = {"parts", "main"};
+/* In light_effects.h order (the Light effects menu's pads 1-12). */
+static const char *const PLAY_EFFECT_NAMES[] = {"off",          "afterglow",    "ripple",  "cross",
+                                                "halo",         "warmth",       "prism_ripple", "touch_colour",
+                                                "heatmap",      "fireworks",    "rise",    "ink"};
+static const char *const LAYOUT_NAMES[] = {"rows", "columns"};
 
 /* THE TABLE. One row per setting. Rules:
  *  - `id` is permanent (it is what is written to flash and what a binary protocol will use): never
@@ -232,6 +244,9 @@ static const tiles_setting_def_t TABLE[] = {
      * 4, 16, 36, 64, 100); 0 = off. */
     TILES_SETTING(0x040B, "look.led_intensity_percent", TILES_SETTING_UINT, {.u = 0}, {.u = 100}, NULL,
                   get_look_led_intensity, set_look_led_intensity),
+    /* The light effect while playing (Feel menu, circle + square). */
+    TILES_SETTING(0x040C, "look.play_effect", TILES_SETTING_ENUM, {.u = 0}, {.u = TILES_FX_COUNT - 1u}, PLAY_EFFECT_NAMES,
+                  get_play_effect, set_play_effect),
     /* MIDI */
     TILES_SETTING(0x0500, "midi.din_trs_type", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, DIN_TYPE_NAMES, get_din_type,
                   set_din_type),
@@ -280,6 +295,9 @@ static const tiles_setting_def_t TABLE[] = {
     TILES_SETTING(0x0807, "modes.volca", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_volca, set_modes_volca),
     TILES_SETTING(0x0808, "modes.bounce", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_bounce,
                   set_modes_bounce),
+    /* Melodic mode's layout (Feel menu, circle + triangle; note_map.h). */
+    TILES_SETTING(0x0900, "layout.melodic", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, LAYOUT_NAMES, get_layout,
+                  set_layout),
     TILES_SETTING(0x0705, "color.custom_pads", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_custom_pads,
                   set_custom_pads),
     PAD_COLOR_LIST(PAD_COLOR_ROW_COMMA)

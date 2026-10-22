@@ -10054,3 +10054,36 @@ change. Search it by file or feature name.
   channel (12): the deepest held chord pad, scaled by the aftertouch
   sensitivity (the Feel menu's pressure row; 0 = off); each held pad's buzz
   follows its own press; a chord struck with no other held starts at 0.
+- **Light effects, Layouts and Duet's two octaves (0.9.6, 2026-10-22).**
+  Asked: "keep all except drip; make shift + -/+ in chord + melodic mode
+  affect the octave of the chords only (two octave selectors); we need
+  infrastructure for some deep menu diving: [circle + square in the Feel
+  menu] opens the visual effects, and while in the Feel menu shift +
+  triangle changes melodic layouts. By default mode 1 is chromatic and
+  scales as usual, 2 is in 3 columns (name it later): notes chromatically
+  into 3 columns rising from pad 19 as C, 20 C#, 13 D, 14 D#, ...; with a
+  scale, tonal notes rise from C to C and the C at the next column's foot
+  mirrors the one above in the column before, three octaves; other scales
+  map accordingly, octave notes repeated when starting new columns".
+  - Effects (light_effects.c, tested): the preview's eleven (the TILES
+    Light Effects artifact, all approved but Drip). expression.c and Duet's
+    chord pads report hits and releases; lighting.c blends the effect over
+    the look (screen) where it draws the look itself (not under standby:
+    menus, Prism, the sequencers, Bouncing notes), a held pad stays white
+    (Touch colour tints it), and while it animates it spends up to two pad
+    writes a pass on the pads whose effect changed most (service_play_fx(),
+    after the live pressure pads, before the round-robin).
+  - Deeper menus (expression_control.c): a short circle press begun in the
+    Feel menu (or with square held) joined by square opens Light effects,
+    by triangle Layouts; a pad picks and closes, any button closes. Pad 1
+    off, 2-6 white, 7-12 colour, 13-24 empty (Drip's removal made it 12 +
+    12). A locked Feel menu no longer closes on triangle while circle is
+    held.
+  - Layouts (note_map.c columns_degree()): three 2-pad columns rising two
+    notes a row; scales of up to 7 notes start each column on the root an
+    octave above the last (a 7-note scale: the top root repeats at the next
+    column's foot, three octaves), 8 or more run on. Melodic mode only.
+    Roots, fifths and thirds follow (same degree). Tested.
+  - Duet: circle + "-"/"+" moves the chord strip's own octave
+    (tiles_note_map_set_chord_octave_shift(), RAM only), plain "-"/"+" only
+    the melody; the LEDs show the chords' octave while circle is held.

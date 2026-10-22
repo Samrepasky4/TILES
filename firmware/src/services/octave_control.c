@@ -239,10 +239,15 @@ void tiles_octave_control_scan(void) {
     }
     s_combo_was_held = both_held;
 
+    /* Chord mode: circle + "-"/"+" moves the chord strip's octave, plain
+     * "-"/"+" the melody's (two instruments, two octaves). */
+    bool chords = tiles_note_map_is_chord_mode_active() && tiles_button_is_pressed(TILES_CIRCLE_BUTTON_ID);
     if (!minus_pressed && s_prev_minus_pressed && !s_minus_became_combo) {
         if (s_transpose_mode) {
             tiles_note_map_set_key_offset((int8_t)(tiles_note_map_get_key_offset() - 1));
             s_transpose_flash_anchor_ms = now_ms;
+        } else if (chords) {
+            tiles_note_map_set_chord_octave_shift((int8_t)(tiles_note_map_get_chord_octave_shift() - 1));
         } else {
             tiles_note_map_set_octave_shift((int8_t)(tiles_note_map_get_octave_shift() - 1));
         }
@@ -251,6 +256,8 @@ void tiles_octave_control_scan(void) {
         if (s_transpose_mode) {
             tiles_note_map_set_key_offset((int8_t)(tiles_note_map_get_key_offset() + 1));
             s_transpose_flash_anchor_ms = now_ms;
+        } else if (chords) {
+            tiles_note_map_set_chord_octave_shift((int8_t)(tiles_note_map_get_chord_octave_shift() + 1));
         } else {
             tiles_note_map_set_octave_shift((int8_t)(tiles_note_map_get_octave_shift() + 1));
         }
@@ -267,7 +274,9 @@ void tiles_octave_control_scan(void) {
         return;
     }
 
-    int8_t shift = tiles_note_map_get_octave_shift();
+    /* The LEDs show the melody's octave, or the chords' while circle is held
+     * in chord mode. */
+    int8_t shift = chords ? tiles_note_map_get_chord_octave_shift() : tiles_note_map_get_octave_shift();
     float minus_level = 0.0f;
     float plus_level = 0.0f;
     if (shift != 0) {

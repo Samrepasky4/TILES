@@ -14,6 +14,9 @@
 static tiles_scale_mode_t __uninitialized_ram(s_scale);
 static int8_t __uninitialized_ram(s_octave_shift);
 static int8_t __uninitialized_ram(s_key_offset);
+/* Chord mode's chord strip has its own octave (circle + "-"/"+"). */
+static int8_t s_chord_octave_shift;
+static tiles_melodic_layout_t s_layout;
 
 void tiles_note_map_init(bool crash_recovered) {
     if (!crash_recovered) {
@@ -21,6 +24,8 @@ void tiles_note_map_init(bool crash_recovered) {
         s_octave_shift = 0;
         s_key_offset = 0;
     }
+    s_chord_octave_shift = 0;
+    s_layout = TILES_LAYOUT_ROWS;
 }
 
 /* ---- Bass guitar mode ----------------------------------------------------
@@ -189,6 +194,27 @@ static const bool s_pitch_class_is_natural[12] = {
 static uint8_t pad_degree(const tiles_pad_config_t *cfg) {
     uint8_t musical_row = (uint8_t)(4u - cfg->row);
     return (uint8_t)(musical_row * 6u + (cfg->col - 1u));
+}
+
+static uint8_t current_scale_note_count(void);
+
+/* The columns layout (note_map.h): three 2-pad-wide columns, each rising
+ * two notes a row from the bottom. A scale of up to 7 notes starts each
+ * column on the root, an octave above the one before (so a 7-note scale's
+ * top root repeats at the next column's foot, and shorter scales repeat a
+ * few more notes); 8 or more (chromatic too) run on, column after column. */
+#define COLUMNS_LAYOUT_SLOTS 8u
+static uint8_t columns_degree(const tiles_pad_config_t *cfg) {
+    uint8_t column = (uint8_t)((cfg->col - 1u) / 2u);
+    uint8_t slot = (uint8_t)((4u - cfg->row) * 2u + (cfg->col - 1u) % 2u);
+    uint8_t count = current_scale_note_count();
+    uint8_t step = count < COLUMNS_LAYOUT_SLOTS ? count : COLUMNS_LAYOUT_SLOTS;
+    return (uint8_t)(column * step + slot);
+}
+
+/* The melodic surface's degree for `cfg` under the selected layout. */
+static uint8_t melodic_degree(const tiles_pad_config_t *cfg) {
+    return s_layout == TILES_LAYOUT_COLUMNS ? columns_degree(cfg) : pad_degree(cfg);
 }
 
 /* ---- Scale interval tables ---------------------------------------------
@@ -389,6 +415,30 @@ int8_t tiles_note_map_get_octave_shift(void) {
     return s_octave_shift;
 }
 
+void tiles_note_map_set_chord_octave_shift(int8_t octaves) {
+    if (octaves > (int8_t)TILES_NOTE_MAP_MAX_OCTAVE_SHIFT) {
+        octaves = (int8_t)TILES_NOTE_MAP_MAX_OCTAVE_SHIFT;
+    }
+    if (octaves < -(int8_t)TILES_NOTE_MAP_MAX_OCTAVE_SHIFT) {
+        octaves = -(int8_t)TILES_NOTE_MAP_MAX_OCTAVE_SHIFT;
+    }
+    s_chord_octave_shift = octaves;
+}
+
+int8_t tiles_note_map_get_chord_octave_shift(void) {
+    return s_chord_octave_shift;
+}
+
+void tiles_note_map_set_layout(tiles_melodic_layout_t layout) {
+    if ((unsigned)layout < (unsigned)TILES_NUM_LAYOUTS) {
+        s_layout = layout;
+    }
+}
+
+tiles_melodic_layout_t tiles_note_map_get_layout(void) {
+    return s_layout;
+}
+
 void tiles_note_map_set_key_offset(int8_t offset) {
     int wrapped = (int)offset % 12;
     if (wrapped < 0) {
@@ -416,13 +466,21 @@ static tiles_scale_table_t current_scale_table(void) {
     return scale_table_with_fallback(s_scale);
 }
 
+static uint8_t current_scale_note_count(void) {
+    return current_scale_table().count;
+}
+
 /* Folds `degree` through an explicit table (chord mode needs a table other
- * than the selected one). */
-static int note_for_scale_degree_using(tiles_scale_table_t table, uint8_t degree) {
+ * than the selected one), at `octave` octaves up. */
+static int note_for_degree(tiles_scale_table_t table, uint8_t degree, int8_t octave) {
     uint8_t octave_num = (uint8_t)(degree / table.count);
     uint8_t degree_in_octave = (uint8_t)(degree % table.count);
     int interval = (int)octave_num * 12 + (int)table.intervals[degree_in_octave];
-    return (int)TILES_NOTE_MAP_BASE_NOTE + interval + (int)s_octave_shift * 12 + (int)s_key_offset;
+    return (int)TILES_NOTE_MAP_BASE_NOTE + interval + (int)octave * 12 + (int)s_key_offset;
+}
+
+static int note_for_scale_degree_using(tiles_scale_table_t table, uint8_t degree) {
+    return note_for_degree(table, degree, s_octave_shift);
 }
 
 /* Normal play uses the selected scale. */
@@ -460,7 +518,8 @@ void tiles_note_map_get_chord_notes(uint8_t logical_pad, uint8_t out_notes[TILES
         CHORD_ELEVENTH_DEGREE_STEP,
         CHORD_THIRTEENTH_DEGREE_STEP};
     for (uint8_t i = 0; i < TILES_NOTE_MAP_CHORD_NUM_NOTES; i++) {
-        int note = note_for_scale_degree_using(table, (uint8_t)(root_degree + degree_steps[i])) - CHORD_OCTAVE_DOWN_SEMITONES;
+        int note = note_for_degree(table, (uint8_t)(root_degree + degree_steps[i]), s_chord_octave_shift) -
+                   CHORD_OCTAVE_DOWN_SEMITONES;
         if (note < 0) {
             note = 0;
         }
@@ -500,9 +559,9 @@ uint8_t tiles_note_map_get_note(uint8_t logical_pad) {
         return (uint8_t)note;
     }
 
-    /* Degree = position in the bottom-to-top (row 4 first), left-to-right
-     * sweep. */
-    uint8_t degree = pad_degree(cfg);
+    /* Degree = position in the selected layout (rows: the bottom-to-top,
+     * left-to-right sweep). */
+    uint8_t degree = melodic_degree(cfg);
     int note = note_for_scale_degree(degree);
     if (note < 0) {
         note = 0;
@@ -555,7 +614,7 @@ bool tiles_note_map_is_root_pad(uint8_t logical_pad) {
      * key offset cancels out. Chord mode uses its own degree sweep and the
      * selected scale's count, matching what its melody grid plays. The chord
      * strip is painted one color anyway, so its result doesn't matter. */
-    uint8_t degree = s_chord_mode_active ? chord_mode_degree(cfg) : pad_degree(cfg);
+    uint8_t degree = s_chord_mode_active ? chord_mode_degree(cfg) : melodic_degree(cfg);
     uint8_t scale_note_count = current_scale_table().count;
     return (degree % scale_note_count) == 0u;
 }
@@ -568,7 +627,7 @@ bool tiles_note_map_is_fifth_pad(uint8_t logical_pad) {
     if (cfg == NULL) {
         return false;
     }
-    uint8_t degree = s_chord_mode_active ? chord_mode_degree(cfg) : pad_degree(cfg);
+    uint8_t degree = s_chord_mode_active ? chord_mode_degree(cfg) : melodic_degree(cfg);
     tiles_scale_table_t table = current_scale_table();
     return table.intervals[degree % table.count] == 7;
 }
@@ -578,7 +637,7 @@ bool tiles_note_map_is_third_pad(uint8_t logical_pad) {
     if (cfg == NULL) {
         return false;
     }
-    uint8_t degree = s_chord_mode_active ? chord_mode_degree(cfg) : pad_degree(cfg);
+    uint8_t degree = s_chord_mode_active ? chord_mode_degree(cfg) : melodic_degree(cfg);
     tiles_scale_table_t table = current_scale_table();
     bool has_major = false;
     for (uint8_t i = 0u; i < table.count; i++) {

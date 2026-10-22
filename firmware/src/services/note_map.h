@@ -110,6 +110,30 @@ tiles_scale_mode_t tiles_note_map_get_scale(void);
 void tiles_note_map_set_octave_shift(int8_t octaves);
 int8_t tiles_note_map_get_octave_shift(void);
 
+/* Chord mode's chord strip has its own octave, same range (circle +
+ * "-"/"+" in octave_control.c); the melody grid keeps the one above. */
+void tiles_note_map_set_chord_octave_shift(int8_t octaves);
+int8_t tiles_note_map_get_chord_octave_shift(void);
+
+/* Melodic layouts (the Layouts menu: Feel menu, circle + triangle;
+ * setting layout.melodic). Melodic mode's surface only (chord mode's grid
+ * and bass guitar keep theirs).
+ *   ROWS     the default above: rows of 6, each continuing the row below.
+ *   COLUMNS  three 2-pad-wide columns rising from the bottom, two notes a
+ *            row (pad 19 C, 20 C#, 13 D, 14 D#, ... then the next column).
+ *            With a scale of up to 7 notes each column starts on the root,
+ *            an octave above the last (a 7-note scale: C to C, the top C
+ *            repeated at the next column's foot, three octaves in all);
+ *            8 or more notes, chromatic too, run on without repeats.
+ *            (Working name; it gets a real one later.) */
+typedef enum {
+    TILES_LAYOUT_ROWS = 0,
+    TILES_LAYOUT_COLUMNS,
+    TILES_NUM_LAYOUTS,
+} tiles_melodic_layout_t;
+void tiles_note_map_set_layout(tiles_melodic_layout_t layout);
+tiles_melodic_layout_t tiles_note_map_get_layout(void);
+
 /* Key (transpose) in semitones, 0 = C (boot default) .. 11 = B. Wraps,
  * since it's a position on the note wheel. Set by octave_control.c's
  * transpose mode. */

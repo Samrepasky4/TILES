@@ -14,6 +14,7 @@
 #include "game_mode.h"
 #include "octave_control.h"
 #include "op_mode.h"
+#include "light_effects.h"
 #include "pedal.h"
 #include "strike_settle.h"
 
@@ -1393,6 +1394,7 @@ static uint8_t find_most_recent_held_pad(uint8_t exclude_pad) {
 static void end_held_note(pad_expr_t *s, uint8_t pad, bool player_release, bool may_hold) {
     tiles_cv_gate_note_off(s->active_note);
     tiles_haptics_stop(pad);
+    tiles_fx_release(pad, to_ms_since_boot(get_absolute_time()));
     s->pitch_bend_active = false;
     if (s->midi_channel != TILES_MIDI_MPE_MASTER_CHANNEL && s->last_sent_aftertouch != 0u) {
         /* MPE: pressure 0 right before Note-Off, even if the Note-Off waits for
@@ -1658,6 +1660,7 @@ void tiles_expression_scan(void) {
                 tiles_midi_note_on(s->midi_channel, s->active_note, velocity);
                 tiles_midi_out_batch_end();
                 tiles_cv_gate_note_on(s->active_note, velocity);
+                tiles_fx_hit(pad, velocity, (uint8_t)(s->active_note % 12u), now_ms); /* light effects */
                 /* Same velocity for the haptic kick and the MIDI note. */
                 tiles_haptics_trigger_kick(pad, velocity);
                 s->last_sent_aftertouch = 0u; /* the setup just set it */

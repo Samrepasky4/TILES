@@ -8,6 +8,7 @@
 #include "expression_control.h"
 #include "game_mode.h"
 #include "hall.h"
+#include "light_effects.h"
 #include "note_map.h"
 #include "op_mode.h"
 #include "pad_config.h"
@@ -307,6 +308,11 @@ static bool s_pad_fx_shown[TILES_NUM_PADS];      /* last write carried an effect
 static uint32_t s_pad_written_ms[TILES_NUM_PADS];
 static uint32_t s_fx_updated_ms;
 static uint8_t s_live_cursor;
+/* The playing light effect (light_effects.h) as each pad was last written,
+ * so a pass sends the pads whose effect changed most. */
+static float s_play_fx_written[TILES_NUM_PADS][3];
+#define PLAY_FX_WRITES_PER_PASS 2u /* a pad write is ~0.7 ms */
+#define PLAY_FX_CHANGE_MIN 0.02f
 
 static float clamp01(float v) {
     if (v < 0.0f) {
@@ -453,7 +459,7 @@ static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
 /* What a pad's r/g/b wants (0.0-1.0) in every state, before the ceiling
  * (applied in write_pad()) and the pressure hue / bend dimming
  * (apply_pad_fx()). The single source of truth for a pad's look. */
-static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
+static tiles_rgb01_t pad_look_rgb(uint8_t pad_index) {
     if (s_standby_active) {
         return s_pad_standby_rgb[pad_index];
     }
@@ -536,6 +542,88 @@ static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
 
     /* Idle melodic colouring by note role: the colour scheme. */
     return rgb01_from_color(scheme_color_for_pad(logical_pad));
+}
+
+/* The effect's light on a pad now: none under standby (menus and the modes
+ * that draw the whole grid) or with no effect picked. */
+static bool play_fx_light(uint8_t pad_index, uint32_t now_ms, float rgb[3]) {
+    if (s_standby_active || tiles_fx_get() == TILES_FX_OFF) {
+        rgb[0] = rgb[1] = rgb[2] = 0.0f;
+        return false;
+    }
+    return tiles_fx_pad_light((uint8_t)(pad_index + 1u), now_ms, rgb);
+}
+
+/* The look with the playing light effect over it. A held pad stays white
+ * (Touch colour tints it); the rest get the effect's light blended over
+ * (screen: light over light). Records what was drawn. */
+static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
+    float fx[3];
+    bool lit = play_fx_light(pad_index, to_ms_since_boot(get_absolute_time()), fx);
+    for (uint8_t c = 0; c < 3u; c++) {
+        s_play_fx_written[pad_index][c] = fx[c];
+    }
+    tiles_rgb01_t look = pad_look_rgb(pad_index);
+    if (s_standby_active || tiles_fx_get() == TILES_FX_OFF) {
+        return look;
+    }
+    float tint[3];
+    if (s_pad_press[pad_index] > 0.0f) {
+        if (tiles_fx_pressed_colour((uint8_t)(pad_index + 1u), tint)) {
+            return (tiles_rgb01_t){look.r * tint[0], look.g * tint[1], look.b * tint[2]};
+        }
+        return look;
+    }
+    if (lit) {
+        look.r = 1.0f - (1.0f - clamp01(look.r)) * (1.0f - fx[0]);
+        look.g = 1.0f - (1.0f - clamp01(look.g)) * (1.0f - fx[1]);
+        look.b = 1.0f - (1.0f - clamp01(look.b)) * (1.0f - fx[2]);
+    }
+    return look;
+}
+
+static void write_pad(uint8_t pad_index);
+
+/* While a light effect animates: up to PLAY_FX_WRITES_PER_PASS pads whose
+ * effect changed most since written. True if it wrote any (the pass's
+ * usual write then waits). */
+static bool service_play_fx(uint32_t now_ms) {
+    if (s_standby_active || tiles_fx_get() == TILES_FX_OFF) {
+        return false;
+    }
+    tiles_fx_step(now_ms);
+    bool busy = tiles_fx_busy(now_ms);
+    float now_light[TILES_NUM_PADS][3];
+    float change[TILES_NUM_PADS];
+    bool any = false;
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        float shown = s_play_fx_written[i][0] + s_play_fx_written[i][1] + s_play_fx_written[i][2];
+        if (!busy && shown < 0.004f) {
+            change[i] = 0.0f; /* nothing animating, nothing left to clear */
+            continue;
+        }
+        play_fx_light(i, now_ms, now_light[i]);
+        change[i] = fmaxf(fabsf(now_light[i][0] - s_play_fx_written[i][0]),
+                          fmaxf(fabsf(now_light[i][1] - s_play_fx_written[i][1]),
+                                fabsf(now_light[i][2] - s_play_fx_written[i][2])));
+    }
+    for (uint8_t n = 0; n < PLAY_FX_WRITES_PER_PASS; n++) {
+        uint8_t best = TILES_NUM_PADS;
+        float best_change = PLAY_FX_CHANGE_MIN;
+        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+            if (change[i] >= best_change) {
+                best_change = change[i];
+                best = i;
+            }
+        }
+        if (best == TILES_NUM_PADS) {
+            break;
+        }
+        write_pad(best);
+        change[best] = 0.0f;
+        any = true;
+    }
+    return any;
 }
 
 static void write_pad(uint8_t pad_index /* 0-23 */) {
@@ -870,6 +958,10 @@ void tiles_lighting_service(void) {
             s_live_cursor = (uint8_t)((i + 1u) % TILES_NUM_PADS);
             return;
         }
+    }
+    /* Then the playing light effect, before the round-robin. */
+    if (service_play_fx(now_ms)) {
+        return;
     }
     write_pad(s_service_cursor);
     s_service_cursor = (uint8_t)((s_service_cursor + 1u) % TILES_NUM_PADS);

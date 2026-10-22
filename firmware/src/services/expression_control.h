@@ -44,6 +44,18 @@
  * slider; notes already sounding finish normally), and octave_control.c
  * ignores "-"/"+" (see tiles_expression_control_owns_pad_grid()).
  *
+ * ---- Deeper menus, from the Feel menu ------------------------------------
+ * With the Feel menu up (square held, or locked open), a short circle press
+ * (under 0.8 s) opens one in its place:
+ *   circle + square   (square held, tap circle; or locked open, circle and
+ *                     square together or one after the other): Light
+ *                     effects. Pad 1 off (default), 2-6 the white effects,
+ *                     7-12 the colour ones (light_effects.h), 13-24 empty.
+ *   circle + triangle Layouts: pad 1 rows (default), 2 columns
+ *                     (note_map.h), the rest empty.
+ * The current pick pulses white. A pad picks and closes; any button closes
+ * without picking. Settings look.play_effect and layout.melodic.
+ *
  * ---- Circle + square held 2 s: MPE on/off -----------------------------
  * Toggles tiles_expression_set_mpe_enabled() (the `expression.mpe_enabled`
  * setting; MPE on is the default) after EXPRESSION_MPE_TOGGLE_HOLD_MS.

@@ -42,6 +42,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_strike_settle.c src/services/strike_settle.c -o /tmp/sentia_tiles_test_strike_settle
 /tmp/sentia_tiles_test_strike_settle
 
+# Light effects: each lights where it should and fades; Off does nothing.
+cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_light_effects.c src/services/light_effects.c -lm -o /tmp/sentia_tiles_test_light_effects
+/tmp/sentia_tiles_test_light_effects
+
 # MIDI clock: an external Start begins on its first Clock, on a beat boundary.
 cc -std=c11 -Wall -Wextra -Wpedantic -Itest/stubs -Isrc/services -Isrc/midi test/test_midi_clock.c src/services/midi_clock.c -lm -o /tmp/sentia_tiles_test_midi_clock
 /tmp/sentia_tiles_test_midi_clock | grep -v '^\[midi_clock\]' # its own Start/Stop logging

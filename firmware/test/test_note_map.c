@@ -119,6 +119,59 @@ static void check_thirds(void) {
     tiles_note_map_set_scale(TILES_SCALE_CHROMATIC);
 }
 
+/* The columns layout: chromatic runs on column after column; a 7-note
+ * scale starts each column on the root (the top root repeated at the next
+ * column's foot); a pentatonic repeats a few more. */
+static void check_columns_layout(void) {
+    static const uint8_t ORDER[24] = {19, 20, 13, 14, 7, 8, 1, 2, 21, 22, 15, 16, 9, 10, 3, 4, 23, 24, 17, 18, 11, 12, 5, 6};
+    tiles_note_map_set_layout(TILES_LAYOUT_COLUMNS);
+    CHECK(tiles_note_map_get_layout() == TILES_LAYOUT_COLUMNS, "layout should be columns");
+    for (uint8_t i = 0; i < 24u; i++) {
+        uint8_t want = (uint8_t)(TILES_NOTE_MAP_BASE_NOTE + i);
+        uint8_t got = tiles_note_map_get_note(ORDER[i]);
+        CHECK(got == want, "columns chromatic: pad %u expected %u, got %u", ORDER[i], want, got);
+    }
+    tiles_note_map_set_scale(TILES_SCALE_IONIAN);
+    static const uint8_t IONIAN_COL1[8] = {0, 2, 4, 5, 7, 9, 11, 12};
+    for (uint8_t i = 0; i < 8u; i++) {
+        uint8_t got = tiles_note_map_get_note(ORDER[i]);
+        CHECK(got == TILES_NOTE_MAP_BASE_NOTE + IONIAN_COL1[i], "columns ionian: pad %u got %u", ORDER[i], got);
+    }
+    CHECK(tiles_note_map_get_note(21) == TILES_NOTE_MAP_BASE_NOTE + 12u, "column 2 starts on the octave root");
+    CHECK(tiles_note_map_get_note(2) == tiles_note_map_get_note(21), "column 1's top root repeats at column 2's foot");
+    CHECK(tiles_note_map_get_note(23) == TILES_NOTE_MAP_BASE_NOTE + 24u, "column 3 starts two octaves up");
+    CHECK(tiles_note_map_get_note(6) == TILES_NOTE_MAP_BASE_NOTE + 36u, "three octaves in all");
+    static const uint8_t ROOTS[6] = {19, 2, 21, 4, 23, 6};
+    for (uint8_t i = 0; i < 6u; i++) {
+        CHECK(tiles_note_map_is_root_pad(ROOTS[i]), "columns ionian: pad %u should be a root", ROOTS[i]);
+    }
+    CHECK(!tiles_note_map_is_root_pad(20), "columns ionian: pad 20 (D) isn't a root");
+    tiles_note_map_set_scale(TILES_SCALE_PENTATONIC_MAJOR);
+    CHECK(tiles_note_map_get_note(21) == TILES_NOTE_MAP_BASE_NOTE + 12u, "pentatonic: column 2 starts on the root");
+    CHECK(tiles_note_map_get_note(2) == TILES_NOTE_MAP_BASE_NOTE + 16u, "pentatonic: column 1 runs past the octave (E')");
+    tiles_note_map_set_scale(TILES_SCALE_CHROMATIC);
+    tiles_note_map_set_layout(TILES_LAYOUT_ROWS);
+}
+
+/* Chord mode's strip has its own octave; the melody grid keeps the main one. */
+static void check_chord_octave(void) {
+    tiles_note_map_set_chord_mode(true);
+    uint8_t chord[TILES_NOTE_MAP_CHORD_NUM_NOTES], chord_up[TILES_NOTE_MAP_CHORD_NUM_NOTES];
+    tiles_note_map_get_chord_notes(19, chord);
+    uint8_t melody = tiles_note_map_get_note(21);
+    tiles_note_map_set_chord_octave_shift(1);
+    tiles_note_map_get_chord_notes(19, chord_up);
+    CHECK(chord_up[0] == chord[0] + 12u, "chord octave +1 moves the chord up an octave");
+    CHECK(tiles_note_map_get_note(21) == melody, "chord octave leaves the melody alone");
+    tiles_note_map_set_chord_octave_shift(0);
+    tiles_note_map_set_octave_shift(1);
+    tiles_note_map_get_chord_notes(19, chord_up);
+    CHECK(chord_up[0] == chord[0], "the melody octave leaves the chords alone");
+    CHECK(tiles_note_map_get_note(21) == melody + 12u, "the melody octave moves the melody");
+    tiles_note_map_set_octave_shift(0);
+    tiles_note_map_set_chord_mode(false);
+}
+
 int main(void) {
     CHECK(tiles_note_map_get_scale() == TILES_SCALE_CHROMATIC, "default scale should be chromatic");
 
@@ -128,6 +181,8 @@ int main(void) {
     check_all_unique();
     check_out_of_range();
     check_thirds();
+    check_columns_layout();
+    check_chord_octave();
 
     if (g_failures == 0) {
         printf("PASS: note map layout (%u pads checked)\n", (unsigned)TILES_NUM_PADS);

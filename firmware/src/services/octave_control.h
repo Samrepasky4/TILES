@@ -1,7 +1,9 @@
 #pragma once
 
 /* Default function of SW1 ("-") and SW2 ("+"): octave shift down/up, in
- * +/-TILES_NOTE_MAP_MAX_OCTAVE_SHIFT (3) steps. services/note_map.c owns
+ * +/-TILES_NOTE_MAP_MAX_OCTAVE_SHIFT (3) steps. In chord mode, circle +
+ * "-"/"+" moves the chord strip's own octave instead (the LEDs show it
+ * while circle is held) and plain "-"/"+" only the melody. services/note_map.c owns
  * the value; this is the button controller. Steps fire on RELEASE, so the
  * first button of the "-"+"+" combo (humans never press both in the same
  * tick) doesn't also step the octave.

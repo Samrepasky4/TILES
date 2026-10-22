@@ -6,7 +6,9 @@
 #include "expression.h"
 #include "game_mode.h"
 #include "haptics.h"
+#include "light_effects.h"
 #include "lighting.h"
+#include "note_map.h"
 #include "op_mode.h"
 #include "standby.h"
 #include "touch.h"
@@ -257,8 +259,26 @@ void tiles_expression_control_init(void) {
     apply_row(SUBMENU_ROW_LED_INTENSITY, LED_INTENSITY_DEFAULT_COLUMN);
 }
 
+/* ---- Deeper menus, from the Feel menu (expression_control.h) ----------- */
+typedef enum {
+    DEEP_NONE = 0,
+    DEEP_EFFECTS, /* circle + square: the light effect while playing */
+    DEEP_LAYOUTS, /* circle + triangle: melodic layouts */
+} deep_menu_t;
+#define DEEP_NUM_BUTTONS 6u /* SW1-SW6 (buttons.h) */
+static deep_menu_t s_deep;
+static bool s_deep_prev_touched[TILES_NUM_PADS];
+static bool s_deep_prev_button[DEEP_NUM_BUTTONS];
+/* A circle press that may open one: begun with the Feel menu up (or square
+ * held), short, with square or triangle joining it. */
+#define DEEP_COMBO_MAX_MS 800u
+static bool s_deep_armed;
+static uint32_t s_deep_circle_down_ms;
+static bool s_deep_saw_square;
+static bool s_deep_saw_triangle;
+
 bool tiles_expression_control_owns_pad_grid(void) {
-    return s_submenu_visible;
+    return s_submenu_visible || s_deep != DEEP_NONE;
 }
 
 /* Shows/hides the menu: claims or releases the pad grid and, on entry,
@@ -275,6 +295,116 @@ static void set_submenu_visible(bool visible) {
         }
     }
     printf("[expression_control] sub-menu %s\n", visible ? "visible" : "hidden");
+}
+
+/* Opens a deeper menu in the Feel menu's place (it keeps the grid). Held
+ * buttons and fingers aren't read as new. */
+static void open_deep(deep_menu_t menu) {
+    s_deep = menu;
+    s_submenu_sticky = false;
+    s_submenu_visible = false;
+    tiles_lighting_set_standby_active(true);
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        s_deep_prev_touched[i] = tiles_touch_is_touched((uint8_t)(i + 1u));
+    }
+    for (uint8_t b = 0; b < DEEP_NUM_BUTTONS; b++) {
+        s_deep_prev_button[b] = tiles_button_is_pressed((uint8_t)(b + 1u));
+    }
+    s_square_press_had_long_action = true; /* its release is no click */
+    s_circle_press_had_long_action = true;
+    printf("[expression_control] deep menu %d\n", (int)menu);
+}
+
+static void close_deep(void) {
+    s_deep = DEEP_NONE;
+    tiles_lighting_set_standby_active(tiles_op_mode_owns_pad_grid());
+    s_square_press_had_long_action = true;
+    s_circle_press_had_long_action = true;
+}
+
+/* Light effects menu: pad 1 off, pads 2-6 the white effects, 7-12 the
+ * colour ones (light_effects.h order), 13-24 empty for later. Layouts
+ * menu: pad 1 rows, pad 2 columns (note_map.h), the rest empty. A pad
+ * picks and closes; any button closes without picking. */
+static bool deep_slot_valid(uint8_t pad) {
+    return s_deep == DEEP_EFFECTS ? pad <= (uint8_t)TILES_FX_COUNT : pad <= (uint8_t)TILES_NUM_LAYOUTS;
+}
+
+static uint8_t deep_selected_pad(void) {
+    return s_deep == DEEP_EFFECTS ? (uint8_t)(tiles_fx_get() + 1u) : (uint8_t)(tiles_note_map_get_layout() + 1u);
+}
+
+/* What an unpicked slot shows: the effect's character (white for the white
+ * ones, its colour for the others), dim magenta for a layout, dark empty. */
+static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
+    static const float COLOURS[6][3] = {
+        {1.0f, 0.0f, 1.0f},   /* Prism ripple */
+        {0.58f, 0.67f, 0.98f}, /* Touch colour: Sentia blue */
+        {0.35f, 0.0f, 1.0f},  /* Heatmap: violet */
+        {1.0f, 0.6f, 0.15f},  /* Fireworks: amber */
+        {0.3f, 0.6f, 1.0f},   /* Rise: sky */
+        {0.0f, 0.9f, 0.78f},  /* Ink: teal */
+    };
+    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    if (!deep_slot_valid(pad)) {
+        return;
+    }
+    if (s_deep == DEEP_LAYOUTS) {
+        rgb[0] = SENTIA_MAGENTA_R * SUBMENU_UNSELECTED_LEVEL;
+        rgb[1] = SENTIA_MAGENTA_G * SUBMENU_UNSELECTED_LEVEL;
+        rgb[2] = SENTIA_MAGENTA_B * SUBMENU_UNSELECTED_LEVEL;
+        return;
+    }
+    if (pad == 1u) {
+        rgb[0] = rgb[1] = rgb[2] = 0.12f; /* off */
+    } else if (pad <= (uint8_t)TILES_FX_WARMTH + 1u) {
+        rgb[0] = rgb[1] = rgb[2] = 0.35f;
+    } else {
+        const float *c = COLOURS[pad - (uint8_t)TILES_FX_PRISM_RIPPLE - 1u];
+        rgb[0] = c[0] * 0.5f;
+        rgb[1] = c[1] * 0.5f;
+        rgb[2] = c[2] * 0.5f;
+    }
+}
+
+static void handle_deep_menu(uint32_t now_ms) {
+    for (uint8_t b = 0; b < DEEP_NUM_BUTTONS; b++) {
+        bool pressed = tiles_button_is_pressed((uint8_t)(b + 1u));
+        bool fresh = pressed && !s_deep_prev_button[b];
+        s_deep_prev_button[b] = pressed;
+        if (fresh) {
+            close_deep();
+            return;
+        }
+    }
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        bool touched = tiles_touch_is_touched(pad);
+        bool fresh = touched && !s_deep_prev_touched[pad - 1u];
+        s_deep_prev_touched[pad - 1u] = touched;
+        if (fresh && deep_slot_valid(pad)) {
+            if (s_deep == DEEP_EFFECTS) {
+                tiles_fx_set((tiles_fx_t)(pad - 1u));
+            } else {
+                tiles_note_map_set_layout((tiles_melodic_layout_t)(pad - 1u));
+            }
+            tiles_haptics_trigger_touch_pulse(pad);
+            close_deep();
+            return;
+        }
+    }
+    float pulse = submenu_selected_pulse_level(now_ms);
+    uint8_t selected = deep_selected_pad();
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        float rgb[3];
+        deep_slot_rgb(pad, rgb);
+        if (pad == selected) {
+            rgb[0] = rgb[1] = rgb[2] = pulse;
+        }
+        tiles_lighting_set_standby_pad_rgb(pad, rgb[0], rgb[1], rgb[2]);
+    }
+    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
+        tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
+    }
 }
 
 /* MPE on/off (the circle+square combo). */
@@ -404,6 +534,17 @@ void tiles_expression_control_scan(void) {
         return;
     }
 
+    if (s_deep != DEEP_NONE) {
+        /* A deeper menu has the grid until a pick or a button. */
+        handle_deep_menu(to_ms_since_boot(get_absolute_time()));
+        s_square_was_held = square_held;
+        s_circle_was_held = circle_held;
+        s_combo_was_held = circle_held && square_held;
+        s_square_alone_was_held = square_held && !circle_held;
+        s_deep_armed = false;
+        return;
+    }
+
     if (tiles_op_mode_has_menu_open()) {
         /* An op_mode menu or sub-view (step edit, pattern bank, a capture, a
          * pitch pick) has the grid: same as above. In the modes that draw the
@@ -458,6 +599,29 @@ void tiles_expression_control_scan(void) {
     }
     s_combo_was_held = combo_held;
 
+    /* Deeper menus: a short circle press begun in the Feel menu (or with
+     * square held to open it), joined by square (Light effects) or triangle
+     * (Layouts). The MPE combo needs 2 s, so it never gets here. */
+    bool triangle_held = tiles_button_is_pressed(TILES_TRIANGLE_BUTTON_ID);
+    if (circle_held && !s_circle_was_held) {
+        s_deep_armed = s_submenu_visible || square_held;
+        s_deep_circle_down_ms = now_ms;
+        s_deep_saw_square = square_held;
+        s_deep_saw_triangle = triangle_held;
+    } else if (circle_held && s_deep_armed) {
+        s_deep_saw_square = s_deep_saw_square || square_held;
+        s_deep_saw_triangle = s_deep_saw_triangle || triangle_held;
+    } else if (!circle_held && s_circle_was_held && s_deep_armed) {
+        s_deep_armed = false;
+        if (now_ms - s_deep_circle_down_ms < DEEP_COMBO_MAX_MS && (s_deep_saw_triangle || s_deep_saw_square)) {
+            open_deep(s_deep_saw_triangle ? DEEP_LAYOUTS : DEEP_EFFECTS);
+            s_square_was_held = square_held;
+            s_circle_was_held = circle_held;
+            s_square_alone_was_held = square_held && !circle_held;
+            return;
+        }
+    }
+
     /* Sticky lock and haptics shift: square held ALONE. The streak restarts if
      * circle joins. */
     if (square_alone_held && !s_square_alone_was_held) {
@@ -494,7 +658,7 @@ void tiles_expression_control_scan(void) {
      * "-"/"+" adjust haptics instead). Cleared before the visibility update so
      * it applies this tick. */
     bool dismiss_edge = poll_dismiss_button_edge();
-    if (s_submenu_sticky && !square_alone_held && dismiss_edge) {
+    if (s_submenu_sticky && !square_alone_held && dismiss_edge && !circle_held) { /* circle + triangle: Layouts */
         s_submenu_sticky = false;
     }
 
