@@ -420,6 +420,32 @@ static void handle_root(uint8_t pad, uint8_t root_pc, bool in_key, bool touched,
     }
 }
 
+void tiles_harmony_track_releases(uint32_t now_ms) {
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        uint8_t i = (uint8_t)(pad - 1u);
+        bool touched = tiles_touch_is_touched(pad);
+        bool was = s_prev_touched[i];
+        s_prev_touched[i] = touched;
+        s_awaiting_strike[i] = false; /* a strike in progress is dropped */
+        s_strum_pending[i] = false;
+        if (!touched) {
+            s_mod_pressed[i] = false;
+        }
+        if (!touched && was && s_sounding_pad == pad) {
+            chord_release();
+        }
+    }
+    if (s_chord_ringing && !tiles_pedal_is_holding_notes()) {
+        chord_off();
+    }
+    bool pedal = tiles_pedal_is_sustained();
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        if (s_pluck_note[i] != 0u && (!pedal || (int32_t)(now_ms - s_pluck_ends_ms[i]) >= 0)) {
+            pluck_off(i);
+        }
+    }
+}
+
 void tiles_harmony_handle_input(uint32_t now_ms) {
     uint16_t mask = scale_mask();
     bool pedal = tiles_pedal_is_sustained();

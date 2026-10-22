@@ -58,6 +58,10 @@ void tiles_harmony_init(void);
 void tiles_harmony_enter(void);
 /* Leaving: ends the chord and any plucks. */
 void tiles_harmony_leave(void);
+/* While another feature has the pads (the Feel menu, transpose): the held
+ * chord keeps sounding and ends when its root lifts (or the pedal lets go);
+ * plucks still end; no new chords. */
+void tiles_harmony_track_releases(uint32_t now_ms);
 
 /* Every scan while the mode is shown. */
 void tiles_harmony_handle_input(uint32_t now_ms);

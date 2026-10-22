@@ -12,6 +12,7 @@
 #include "expression_control.h"
 #include "game_mode.h"
 #include "hall.h"
+#include "strike_settle.h"
 #include "haptics.h"
 #include "lighting.h"
 #include "midi_clock.h"
@@ -483,6 +484,11 @@ static uint8_t s_chord_pad_last_velocity[TILES_NUM_PADS];
 static uint32_t s_chord_pad_touch_start_ms[TILES_NUM_PADS];
 static float s_chord_pad_peak_depth[TILES_NUM_PADS];
 static bool s_chord_pad_awaiting_strike[TILES_NUM_PADS];
+/* The strike's follow-through (strike_settle.h), as on melodic pads. */
+static bool s_chord_pad_crossed[TILES_NUM_PADS];
+static uint32_t s_chord_pad_crossed_ms[TILES_NUM_PADS];
+static uint32_t s_chord_pad_sample_ms[TILES_NUM_PADS];
+static tiles_strike_settle_t s_chord_pad_settle[TILES_NUM_PADS];
 
 static uint8_t clamp_midi_note(int note) {
     if (note < 0) {
@@ -550,38 +556,81 @@ static void chord_end_all_notes(void) {
     }
 }
 
-/* Strike detection like expression.c (touch start, peak depth until it
- * crosses TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA), simplified: no
- * follow-through wait (the threshold is crossed within a few ms of
- * contact, so chords stay immediate), and a touch that never crosses it
- * stays silent. */
+/* Strike detection as on melodic pads (expression.c): touch start, the
+ * peak depth past TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA, then the
+ * follow-through (strike_settle.h) so the velocity sees how deep the hit
+ * went (velocity read at the crossing itself made nearly every chord soft).
+ * A touch that never crosses stays silent; one released before the
+ * follow-through ends plays with the depth it reached. */
+static void chord_pad_commit(uint8_t pad) {
+    uint8_t i = (uint8_t)(pad - 1u);
+    uint8_t velocity = tiles_expression_velocity_from_strike(s_chord_pad_crossed_ms[i] - s_chord_pad_touch_start_ms[i],
+                                                             s_chord_pad_peak_depth[i]);
+    chord_pad_strike(pad, velocity);
+    s_chord_pad_awaiting_strike[i] = false;
+}
+
 static void handle_chord_pad_taps(uint32_t now_ms) {
     for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
         if (!tiles_note_map_is_chord_region_pad(pad)) {
             continue;
         }
+        uint8_t i = (uint8_t)(pad - 1u);
         bool touched = tiles_touch_is_touched(pad);
-        if (touched && !s_chord_pad_touched[pad - 1u]) {
-            s_chord_pad_touch_start_ms[pad - 1u] = now_ms;
-            s_chord_pad_peak_depth[pad - 1u] = (float)tiles_hall_get_depth(pad);
-            s_chord_pad_awaiting_strike[pad - 1u] = true;
-        } else if (touched && s_chord_pad_awaiting_strike[pad - 1u]) {
-            float depth = (float)tiles_hall_get_depth(pad);
-            if (depth > s_chord_pad_peak_depth[pad - 1u]) {
-                s_chord_pad_peak_depth[pad - 1u] = depth;
+        float depth = (float)tiles_hall_get_depth(pad);
+        uint32_t sample_ms = tiles_hall_get_sample(pad).sample_time_ms;
+        if (touched && !s_chord_pad_touched[i]) {
+            s_chord_pad_touch_start_ms[i] = now_ms;
+            s_chord_pad_peak_depth[i] = depth;
+            s_chord_pad_awaiting_strike[i] = true;
+            s_chord_pad_crossed[i] = depth >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA;
+            s_chord_pad_crossed_ms[i] = now_ms;
+            s_chord_pad_sample_ms[i] = sample_ms;
+            if (s_chord_pad_crossed[i]) {
+                tiles_strike_settle_begin(&s_chord_pad_settle[i], depth, now_ms);
             }
-            if (s_chord_pad_peak_depth[pad - 1u] >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA) {
-                uint32_t strike_time_ms = now_ms - s_chord_pad_touch_start_ms[pad - 1u];
-                uint8_t velocity =
-                    tiles_expression_velocity_from_strike(strike_time_ms, s_chord_pad_peak_depth[pad - 1u]);
-                chord_pad_strike(pad, velocity);
-                s_chord_pad_awaiting_strike[pad - 1u] = false;
+        } else if (touched && s_chord_pad_awaiting_strike[i]) {
+            if (depth > s_chord_pad_peak_depth[i]) {
+                s_chord_pad_peak_depth[i] = depth;
             }
-        } else if (!touched && s_chord_pad_touched[pad - 1u]) {
+            if (!s_chord_pad_crossed[i] && s_chord_pad_peak_depth[i] >= TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA) {
+                s_chord_pad_crossed[i] = true;
+                s_chord_pad_crossed_ms[i] = now_ms;
+                tiles_strike_settle_begin(&s_chord_pad_settle[i], s_chord_pad_peak_depth[i], now_ms);
+            } else if (s_chord_pad_crossed[i] && sample_ms != s_chord_pad_sample_ms[i]) {
+                tiles_strike_settle_sample(&s_chord_pad_settle[i], depth, sample_ms);
+            }
+            s_chord_pad_sample_ms[i] = sample_ms;
+            if (s_chord_pad_crossed[i] && tiles_strike_settle_ready(&s_chord_pad_settle[i], s_chord_pad_peak_depth[i],
+                                                                     TILES_EXPRESSION_FULL_STRIKE_DEPTH, now_ms)) {
+                chord_pad_commit(pad);
+            }
+        } else if (!touched && s_chord_pad_touched[i]) {
+            if (s_chord_pad_awaiting_strike[i] && s_chord_pad_crossed[i]) {
+                chord_pad_commit(pad); /* a quick tap: what it reached */
+            }
             chord_pad_note_off(pad);
-            s_chord_pad_awaiting_strike[pad - 1u] = false;
+            s_chord_pad_awaiting_strike[i] = false;
         }
-        s_chord_pad_touched[pad - 1u] = touched;
+        s_chord_pad_touched[i] = touched;
+    }
+}
+
+/* While another feature has the pads (the Feel menu, transpose): chords
+ * keep sounding until their pad lifts; no new ones (a strike in progress is
+ * dropped). */
+static void chord_pads_track_releases(void) {
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        if (!tiles_note_map_is_chord_region_pad(pad)) {
+            continue;
+        }
+        uint8_t i = (uint8_t)(pad - 1u);
+        bool touched = tiles_touch_is_touched(pad);
+        if (!touched && s_chord_pad_touched[i]) {
+            chord_pad_note_off(pad);
+        }
+        s_chord_pad_awaiting_strike[i] = false;
+        s_chord_pad_touched[i] = touched;
     }
 }
 
@@ -3305,13 +3354,21 @@ void tiles_op_mode_scan(void) {
         s_circle_was_held = tiles_button_is_pressed(TILES_CIRCLE_BUTTON_ID);
         s_minus_was_held = tiles_button_is_pressed(TILES_MINUS_BUTTON_ID);
         s_plus_was_held = tiles_button_is_pressed(TILES_PLUS_BUTTON_ID);
-        /* Chord pads can't be played meanwhile: end what they hold. */
+        /* Chords already sounding keep sounding (the Feel menu mid-performance)
+         * and end when their pad lifts; a game or deep sleep ends them. */
         if (s_active_mode == OP_MODE_CHORD) {
-            chord_end_all_notes();
+            if (playback_paused()) {
+                chord_end_all_notes();
+            } else {
+                chord_pads_track_releases();
+            }
         }
-        if (!s_other_feature_was_active && s_active_mode == OP_MODE_HARMONY &&
-            tiles_expression_control_owns_pad_grid()) {
-            tiles_harmony_leave(); /* the Feel menu takes the grid: end the held chord */
+        if (s_active_mode == OP_MODE_HARMONY) {
+            if (playback_paused()) {
+                tiles_harmony_leave();
+            } else {
+                tiles_harmony_track_releases(now_ms);
+            }
         }
         s_other_feature_was_active = true;
         if (playback_paused()) {

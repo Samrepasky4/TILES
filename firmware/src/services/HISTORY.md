@@ -10030,3 +10030,21 @@ change. Search it by file or feature name.
     (s_step_realign). Note-offs with an end time now run in both modes.
   - Sequencer: empty in-loop steps dark (the faint scarlet from 0.8.1/0.8.7
     is gone); armed steps stay scarlet.
+- **Chords survive the Feel menu; Duet's chord velocity follows through
+  (0.9.4, 2026-10-22).** Reported: "the expression button is releasing all
+  notes even in chord + melodic mode; this limits performance, make it not
+  kill notes on chords; also the velocity mapping for chords is weird in
+  that mode".
+  - op_mode's other-feature branch ended Duet's chord pads every scan
+    (chord_end_all_notes()), and the Feel menu opening ended Prism's held
+    chord (tiles_harmony_leave()). Now under the Feel menu or transpose the
+    chords keep sounding and end when their pad lifts
+    (chord_pads_track_releases(), tiles_harmony_track_releases(): no new
+    strikes, a strike in progress dropped, Prism's pedal hold and plucks
+    still end). A game or deep sleep still ends them. Melodic pads already
+    kept sounding (expression.c only blocks new strikes).
+  - Duet's chord pads committed the moment the peak crossed the strike
+    depth, so the depth score (85% of the velocity) read ~0: nearly every
+    chord came out at 8-26 unless the first reading was already deep. They
+    now use the melodic strike's follow-through (strike_settle.h), and a tap
+    released before it ends plays with the depth it reached.
