@@ -195,7 +195,7 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0806 | `modes.ableton` | bool | | `1` | yes |
 | 0x0807 | `modes.volca` | bool | | `1` | yes |
 | 0x0808 | `modes.bounce` | bool | | `1` | yes |
-| 0x0900 | `layout.melodic` | enum | `rows` (the default), `columns` (three 2-pad columns; working name) for melodic mode (Feel menu, circle + triangle) | `rows` | yes |
+| 0x0900 | `layout.melodic` | enum | `rows` (the default), `columns` (three 2-pad columns) for melodic mode (Feel menu, circle + triangle) | `rows` | yes |
 
 Ids `0x0401`-`0x0404` (`look.natural_pad_percent`, `look.root_pad_percent`,
 `look.fifth_pad_percent`, `look.fifth_red_tint_percent`) were retired in

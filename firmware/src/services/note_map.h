@@ -124,8 +124,7 @@ int8_t tiles_note_map_get_chord_octave_shift(void);
  *            With a scale of up to 7 notes each column starts on the root,
  *            an octave above the last (a 7-note scale: C to C, the top C
  *            repeated at the next column's foot, three octaves in all);
- *            8 or more notes, chromatic too, run on without repeats.
- *            (Working name; it gets a real one later.) */
+ *            8 or more notes, chromatic too, run on without repeats. */
 typedef enum {
     TILES_LAYOUT_ROWS = 0,
     TILES_LAYOUT_COLUMNS,

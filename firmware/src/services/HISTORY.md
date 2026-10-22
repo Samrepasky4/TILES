@@ -10087,3 +10087,5 @@ change. Search it by file or feature name.
   - Duet: circle + "-"/"+" moves the chord strip's own octave
     (tiles_note_map_set_chord_octave_shift(), RAM only), plain "-"/"+" only
     the melody; the LEDs show the chords' octave while circle is held.
+  - Named (2026-10-22): the user picked plain names over marketing ones:
+    the layouts are Rows (default) and Columns.
