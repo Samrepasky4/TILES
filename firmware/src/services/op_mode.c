@@ -531,8 +531,54 @@ static void chord_pad_note_off(uint8_t pad) {
 }
 
 /* Strikes `pad` at `velocity` once a strike has been measured. */
+/* Aftertouch on the chord strip, as Prism does: channel pressure on the
+ * chord channel from the deepest held chord pad, scaled by the Feel menu's
+ * pressure (aftertouch sensitivity; 0 = off), and each held pad's buzz
+ * follows its own press. A chord struck with no other held starts at 0. */
+static uint8_t s_chord_last_pressure;
+
+static uint8_t chord_pressure_for(uint8_t pad) {
+    uint32_t full = tiles_expression_get_aftertouch_sensitivity();
+    if (full == 0u) {
+        return 0u;
+    }
+    uint32_t scaled = (uint32_t)tiles_hall_get_depth(pad) * 127u / full;
+    return (uint8_t)(scaled > 127u ? 127u : scaled);
+}
+
+static bool any_chord_pad_sounding(void) {
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        if (s_chord_pad_sounding[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void chord_pads_pressure(void) {
+    uint8_t pressure = 0u;
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        if (!s_chord_pad_sounding[pad - 1u]) {
+            continue;
+        }
+        uint8_t own = chord_pressure_for(pad);
+        tiles_haptics_set_sustain_level(pad, own);
+        if (own > pressure) {
+            pressure = own;
+        }
+    }
+    if (pressure != s_chord_last_pressure) {
+        s_chord_last_pressure = pressure;
+        tiles_midi_send_channel_pressure(OP_CHORD_CHANNEL, pressure);
+    }
+}
+
 static void chord_pad_strike(uint8_t pad, uint8_t velocity) {
     chord_pad_note_off(pad);
+    if (!any_chord_pad_sounding() && s_chord_last_pressure != 0u) {
+        s_chord_last_pressure = 0u;
+        tiles_midi_send_channel_pressure(OP_CHORD_CHANNEL, 0u);
+    }
     uint8_t raw[TILES_NOTE_MAP_CHORD_NUM_NOTES];
     tiles_note_map_get_chord_notes(pad, raw);
     build_chord_voicing(raw, s_chord_pad_notes[pad - 1u]);
@@ -3525,6 +3571,7 @@ void tiles_op_mode_scan(void) {
      * menus here: no chords under an open menu. */
     if (s_active_mode == OP_MODE_CHORD && !s_menu_visible && !s_scale_menu_visible) {
         handle_chord_pad_taps(now_ms);
+        chord_pads_pressure();
     }
     /* Bass guitar and chord's melody columns need nothing here: they play and
      * light through expression.c and lighting.c (which read note_map). The

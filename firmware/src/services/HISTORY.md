@@ -10048,3 +10048,9 @@ change. Search it by file or feature name.
     chord came out at 8-26 unless the first reading was already deep. They
     now use the melodic strike's follow-through (strike_settle.h), and a tap
     released before it ends plays with the depth it reached.
+- **Duet's chord pads get aftertouch (0.9.5, 2026-10-22).** Asked: "give
+  chord modes aftertouch capabilities as well". Prism already sent channel
+  pressure from its held root. Duet's strip now does the same on the chord
+  channel (12): the deepest held chord pad, scaled by the aftertouch
+  sensitivity (the Feel menu's pressure row; 0 = off); each held pad's buzz
+  follows its own press; a chord struck with no other held starts at 0.
