@@ -447,7 +447,12 @@ static void handle_line(char *line) {
         tiles_settings_persist_info_t info = tiles_settings_persist_get_info();
         snprintf(text, sizeof(text), "unit=%u/%u", (unsigned)TILES_UNIT_NUMBER, (unsigned)TILES_UNIT_COUNT);
         reply(text);
-        snprintf(text, sizeof(text), "firmware=%s.%u", TILES_FW_STAGE_NAME, (unsigned)TILES_FW_BUILD);
+        if (TILES_FW_POINT == 0u) {
+            snprintf(text, sizeof(text), "firmware=%s.%u", TILES_FW_STAGE_NAME, (unsigned)TILES_FW_BUILD);
+        } else {
+            snprintf(text, sizeof(text), "firmware=%s.%u.%u", TILES_FW_STAGE_NAME, (unsigned)TILES_FW_BUILD,
+                     (unsigned)TILES_FW_POINT);
+        }
         reply(text);
         snprintf(text, sizeof(text), "settings=%u", (unsigned)tiles_settings_count());
         reply(text);

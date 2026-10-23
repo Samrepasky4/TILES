@@ -40,8 +40,8 @@ static void identity_on_sysex(tiles_midi_port_t port, const uint8_t *data, size_
                        TILES_IDENTITY_MEMBER_LSB,
                        TILES_IDENTITY_MEMBER_MSB,
                        TILES_FW_STAGE,
-                       (uint8_t)((TILES_FW_BUILD >> 7) & 0x7Fu),
-                       (uint8_t)(TILES_FW_BUILD & 0x7Fu),
+                       (uint8_t)TILES_FW_BUILD,
+                       (uint8_t)TILES_FW_POINT,
                        0u};
     /* Back on the port the request came from. DIN requests get no reply (no
      * SysEx path). */

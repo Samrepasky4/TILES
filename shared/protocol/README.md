@@ -336,7 +336,7 @@ untouched (`RESET ALL` is theirs).
 
 ### INFO
 
-`key=value` lines, then `OK`: `unit=2/4`, `firmware=alpha.1` (stage.build; product_identity.h), `settings=<n>`,
+`key=value` lines, then `OK`: `unit=2/4`, `firmware=alpha.4` or `alpha.4.1` (stage.build[.point]; product_identity.h), `settings=<n>`,
 `power=usb_only|external_only|usb_and_external|fault` and its
 `power.budget_ma`, `power.led_ceiling_percent`, `power.haptic_voices`; the
 settings store's `store.*` (loaded, restored, slot, seq, saved_bytes, writes,

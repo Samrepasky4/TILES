@@ -543,3 +543,11 @@ owner's feedback that prompted each change.
   `firmware=alpha.1`; bcdDevice is 0xSNNN (stage digit, build in BCD); the
   Identity Reply's software revision is stage, build high 7 bits, build
   low 7 bits, 0. This build is Alpha 1.
+- **Point builds: Alpha N.P (2026-10-23, at Alpha 4).** Asked: "dont call
+  each push alpha new number. do incremental changes for small things, a
+  whole new alpha is for a big architecture change or new features or
+  layouts". TILES_FW_POINT added: small builds are Alpha 4.1, 4.2 ...; N
+  moves only for big changes. INFO `firmware=alpha.4` / `alpha.4.1`;
+  bcdDevice 0xSNPP (N 0-9, P 0-99, a static assert guards it); Identity
+  Reply stage, N, P, 0. Alpha 1-4 keep their numbers (unit 2 had already
+  reported alpha.3, so renumbering would have gone backwards).
