@@ -1135,6 +1135,20 @@ void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, f
     *stored = c; /* tiles_lighting_service() sends it (service_standby_frame()) */
 }
 
+void tiles_lighting_flush_standby(void) {
+    if (!s_standby_active || !s_initialized) {
+        return;
+    }
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        tiles_rgb01_t want = standby_pad_rgb(i, now_ms), shown = s_standby_written[i];
+        if (!s_standby_written_valid[i] || fabsf(want.r - shown.r) > 0.004f || fabsf(want.g - shown.g) > 0.004f ||
+            fabsf(want.b - shown.b) > 0.004f) {
+            write_pad(i);
+        }
+    }
+}
+
 void tiles_lighting_set_standby_underglow_rgb(uint8_t pixel_index, float r, float g, float b) {
     if (!s_standby_active || pixel_index >= TILES_LIGHTING_NUM_UNDERGLOW_PIXELS) {
         return;

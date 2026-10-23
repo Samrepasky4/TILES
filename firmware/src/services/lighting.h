@@ -114,6 +114,12 @@ void tiles_lighting_set_mode_underglow(float r, float g, float b);
  * floor: {0,0,0} is black. No-op unless standby is active. */
 void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, float b);
 
+/* Pads set above are sent by tiles_lighting_service(), a few a pass. A
+ * caller with its own loop, before the main loop runs (the boot
+ * animation), sends its whole frame with this instead: every changed pad
+ * now, ~0.3 ms each. */
+void tiles_lighting_flush_standby(void);
+
 /* A melodic pad's resting look under the current note map and colour
  * scheme (no note: dark; a quarter tone: dim blue): the Layouts menu's
  * preview. */

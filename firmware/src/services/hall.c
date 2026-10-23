@@ -2,6 +2,7 @@
 
 #include "board_pins.h"
 #include "pad_config.h"
+#include "rest_guard.h"
 
 #include "tca9548a.h"
 #include "tmag5273.h"
@@ -10,30 +11,18 @@
 
 #include "pico/time.h"
 
+#include <stdio.h>
+
 static tiles_tca9548a_t s_hall_muxes[TILES_NUM_HALL_MUXES]; /* index 0/1/2 = mux 1/2/3 */
 static bool s_pad_init_ok[TILES_NUM_PADS];
 static tiles_hall_sample_t s_pad_sample[TILES_NUM_PADS];
-static int16_t s_pad_baseline_z[TILES_NUM_PADS];
+/* Each pad's rest Z and the rules that keep it true (rest_guard.h). */
+static tiles_rest_guard_t s_rest[TILES_NUM_PADS];
 static uint8_t s_scan_cursor;
 /* Release follow-up (hall.h): touched last call, and when a released pad
  * stops being read every call (0 = not following). */
 static bool s_pad_was_touched[TILES_NUM_PADS];
 static uint32_t s_pad_follow_until_ms[TILES_NUM_PADS];
-
-/* Slow drift tracker (docs/architecture/defaults-and-safeguards.md "Pad
- * baseline calibration and drift compensation"). A pad's baseline creeps
- * toward its reading only while it is untouched (which also means no note)
- * and each read stays within DRIFT_NOISE_THRESHOLD of the PREVIOUS one for
- * DRIFT_DWELL_MS. The reference slides with every read, so slow drift
- * accumulates without any single step looking unstable. Only background
- * (untouched) reads get here. */
-#define DRIFT_NOISE_THRESHOLD 8    /* raw Z counts a step may move and still be "stable" */
-#define DRIFT_DWELL_MS 400u        /* how long a stable streak must last before nudging */
-#define DRIFT_SLEW_DENOMINATOR 128 /* nudge ~1/128 of the gap per qualifying read, never snap */
-
-static int16_t s_pad_drift_last_z[TILES_NUM_PADS];
-static uint32_t s_pad_drift_stable_since_ms[TILES_NUM_PADS];
-static bool s_pad_drift_ref_valid[TILES_NUM_PADS];
 
 static int mux_index_for_addr(uint8_t mux_i2c_addr) {
     if (mux_i2c_addr == TILES_I2C0_ADDR_HALL_MUX1) {
@@ -91,60 +80,23 @@ static void read_pad(uint8_t pad_index /* 0-23 */) {
     s_pad_sample[pad_index].valid = ok;
 }
 
-static void reset_drift_tracker(uint8_t pad_index) {
-    s_pad_drift_ref_valid[pad_index] = false;
-    s_pad_drift_last_z[pad_index] = 0;
-    s_pad_drift_stable_since_ms[pad_index] = 0;
-}
-
-/* For a pad just read by the background pass: nudges the baseline once
- * the reading has held steady long enough, else updates the streak state. */
-static void update_drift_tracker(uint8_t pad_index) {
+/* For a pad just read by the background pass (untouched): its rest guard
+ * drifts, re-zeroes or confirms (rest_guard.h). */
+static void update_rest_guard(uint8_t pad_index) {
     if (!s_pad_init_ok[pad_index] || !s_pad_sample[pad_index].valid) {
         return;
     }
+    tiles_rest_guard_t *g = &s_rest[pad_index];
     if (tiles_touch_is_touched((uint8_t)(pad_index + 1u))) {
-        /* Can't normally happen (background reads are untouched pads); if it
-         * does, reset so a stale streak doesn't resume after release. */
-        reset_drift_tracker(pad_index);
+        tiles_rest_guard_touched(g); /* can't normally happen here */
         return;
     }
-
-    int16_t z = s_pad_sample[pad_index].z;
-    uint32_t now_ms = s_pad_sample[pad_index].sample_time_ms;
-
-    if (!s_pad_drift_ref_valid[pad_index]) {
-        s_pad_drift_last_z[pad_index] = z;
-        s_pad_drift_stable_since_ms[pad_index] = now_ms;
-        s_pad_drift_ref_valid[pad_index] = true;
-        return;
+    bool was_confirmed = g->confirmed;
+    int16_t old = g->baseline;
+    if (tiles_rest_guard_untouched(g, s_pad_sample[pad_index].z, s_pad_sample[pad_index].sample_time_ms)) {
+        printf("[hall] pad %u %s (rest moved %d)\n", (unsigned)(pad_index + 1u),
+               was_confirmed ? "re-zeroed" : "confirmed at rest", (int)(g->baseline - old));
     }
-
-    int16_t step = (int16_t)(z - s_pad_drift_last_z[pad_index]);
-    if (step < 0) {
-        step = (int16_t)(-step);
-    }
-    /* The reference slides to this reading whether or not it was stable (see
-     * above). */
-    s_pad_drift_last_z[pad_index] = z;
-
-    if (step > DRIFT_NOISE_THRESHOLD) {
-        s_pad_drift_stable_since_ms[pad_index] = now_ms;
-        return;
-    }
-
-    if (now_ms - s_pad_drift_stable_since_ms[pad_index] < DRIFT_DWELL_MS) {
-        return;
-    }
-
-    /* Stable long enough: nudge, don't snap, but by at least 1 count so a
-     * small remaining gap doesn't stall at zero from integer division. */
-    int32_t gap = (int32_t)z - (int32_t)s_pad_baseline_z[pad_index];
-    int32_t nudge = gap / (int32_t)DRIFT_SLEW_DENOMINATOR;
-    if (nudge == 0 && gap != 0) {
-        nudge = (gap > 0) ? 1 : -1;
-    }
-    s_pad_baseline_z[pad_index] = (int16_t)(s_pad_baseline_z[pad_index] + nudge);
 }
 
 bool tiles_hall_init(void) {
@@ -159,8 +111,7 @@ bool tiles_hall_init(void) {
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
         s_pad_sample[i] = (tiles_hall_sample_t){0};
         s_pad_init_ok[i] = false;
-        s_pad_baseline_z[i] = 0;
-        reset_drift_tracker(i);
+        tiles_rest_guard_set(&s_rest[i], 0, true);
 
         const tiles_pad_config_t *cfg = board_pad_config((uint8_t)(i + 1u));
         if (cfg == NULL || !select_pad(cfg)) {
@@ -174,11 +125,12 @@ bool tiles_hall_init(void) {
             tiles_tmag5273_t dev;
             ok = tiles_tmag5273_init(&dev, i2c0, cfg->hall.sensor_i2c_addr);
 
-            /* Baseline: this pad is assumed at rest now (see the header). */
+            /* Baseline: this pad is assumed at rest now (see the header); the
+             * rest guard repairs it if it wasn't. */
             if (ok) {
                 tiles_tmag5273_sample_t raw;
                 if (tiles_tmag5273_read_xyz(&dev, &raw)) {
-                    s_pad_baseline_z[i] = raw.z;
+                    tiles_rest_guard_set(&s_rest[i], raw.z, true);
                 }
             }
         }
@@ -237,7 +189,7 @@ void tiles_hall_scan(void) {
         }
 
         read_pad(pad_index);
-        update_drift_tracker(pad_index);
+        update_rest_guard(pad_index);
         return;
     }
     /* Everything touched or nothing initialized: no background read this call. */
@@ -257,13 +209,14 @@ bool tiles_hall_recapture_baseline(void) {
             continue;
         }
         read_pad(i);
-        if (s_pad_sample[i].valid) {
-            s_pad_baseline_z[i] = s_pad_sample[i].z;
-            /* Fresh baseline: restart the drift tracker so stale streak state can't
-             * nudge it away immediately. */
-            reset_drift_tracker(i);
-        } else {
+        if (!s_pad_sample[i].valid) {
             all_ok = false;
+        } else if (tiles_touch_is_touched((uint8_t)(i + 1u))) {
+            /* A finger on it: this reading may be pressed. Keep the old
+             * baseline, untrusted, until the pad is seen at rest. */
+            tiles_rest_guard_set(&s_rest[i], s_rest[i].baseline, false);
+        } else {
+            tiles_rest_guard_set(&s_rest[i], s_pad_sample[i].z, true);
         }
     }
     return all_ok;
@@ -277,6 +230,16 @@ uint16_t tiles_hall_get_depth(uint8_t logical_pad) {
     if (!s_pad_init_ok[i] || !s_pad_sample[i].valid) {
         return 0u;
     }
-    int32_t delta = (int32_t)s_pad_sample[i].z - (int32_t)s_pad_baseline_z[i];
-    return (uint16_t)(delta < 0 ? -delta : delta);
+    return tiles_rest_guard_depth(&s_rest[i], s_pad_sample[i].z);
+}
+
+tiles_hall_rest_info_t tiles_hall_get_rest_info(void) {
+    tiles_hall_rest_info_t info = {0u, 0u};
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        info.rezeros += s_rest[i].rezeros;
+        if (s_pad_init_ok[i] && !s_rest[i].confirmed) {
+            info.unconfirmed++;
+        }
+    }
+    return info;
 }

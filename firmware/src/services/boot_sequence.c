@@ -126,6 +126,7 @@ static void write_frame_white(white_level_fn_t level_fn, uint32_t elapsed_ms) {
         /* Underglow stays off in phases 1-2. */
         tiles_lighting_set_standby_underglow_rgb(i, 0.0f, 0.0f, 0.0f);
     }
+    tiles_lighting_flush_standby(); /* no main loop yet to send it */
 }
 
 static float phase1_level(uint8_t row, uint8_t col, uint32_t elapsed_ms) {
@@ -196,6 +197,7 @@ static void run_phase3_magenta_pulse(void) {
         for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
             tiles_lighting_set_standby_underglow_rgb(i, MAGENTA_R * env, MAGENTA_G * env, MAGENTA_B * env);
         }
+        tiles_lighting_flush_standby();
 
         if (done) {
             break;

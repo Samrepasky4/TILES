@@ -10195,3 +10195,25 @@ change. Search it by file or feature name.
     screened over the frame (standby_pad_rgb()), 3 pads a pass as usual.
     A mode change clears the effect's light. Song and Bouncing notes are
     not included.
+- **Boot animation drawn again; rest guard for the pads (Alpha 4.1,
+  2026-10-23).** Reported: "something is causing pad 6 to give haptic
+  feedback after release not when pressed", fixed by a reboot; then "the
+  boot sequence animation got damaged at some point and that also created
+  this issue".
+  - Cause: Alpha 1 made tiles_lighting_set_standby_pad_rgb() only store
+    the colour, for tiles_lighting_service() to send a few pads a pass.
+    The boot animation runs before the main loop, so its pads were never
+    sent: the pads stayed dark through it. That animation is the cue to
+    keep hands off while each pad's rest position is taken at its end; a
+    finger on pad 6 then gave it a pressed rest, so pressing read as no
+    movement and the release read as a strike (note and kick on lift).
+  - Fix: tiles_lighting_flush_standby() sends every changed pad at once,
+    for a caller with its own loop; the boot animation calls it each
+    frame (as the immediate writes did before).
+  - Fail-safe, asked "make a fail safe but better than that" (than a plain
+    re-zero): services/rest_guard.c (pure, tested), replacing hall.c's
+    drift tracker: drift as before; a re-zero when an untouched key reads
+    a strike's depth (150) steady for 600 ms; a pad touched as the boot
+    capture runs keeps its old baseline but reports no depth until seen
+    at rest. INFO hall.rezeros / hall.unconfirmed; a re-zero prints a line
+    on the console.

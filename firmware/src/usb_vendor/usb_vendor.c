@@ -4,6 +4,7 @@
 #include "content.h"
 #include "diagnostics/loop_stats.h"
 #include "drum_seq.h"
+#include "hall.h"
 #include "haptics.h"
 #include "lighting.h"
 #include "note_map.h"
@@ -506,6 +507,11 @@ static void handle_line(char *line) {
         snprintf(text, sizeof(text), "loop.max_us=%lu", (unsigned long)loop.max_us);
         reply(text);
         snprintf(text, sizeof(text), "loop.max_ever_us=%lu", (unsigned long)loop.max_ever_us);
+        reply(text);
+        tiles_hall_rest_info_t rest = tiles_hall_get_rest_info();
+        snprintf(text, sizeof(text), "hall.rezeros=%lu", (unsigned long)rest.rezeros);
+        reply(text);
+        snprintf(text, sizeof(text), "hall.unconfirmed=%u", (unsigned)rest.unconfirmed);
         reply(text);
         tiles_drum_seq_store_info_t drums = tiles_drum_seq_get_store_info();
         snprintf(text, sizeof(text), "drums.storage=%s", drums.storage ? "ok" : "none");

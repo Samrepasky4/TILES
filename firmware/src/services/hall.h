@@ -13,10 +13,12 @@
  * stays at the last pressed reading after the finger leaves, and
  * expression.c can't tell a lift from a touch dropout over a held key.
  *
- * Provides raw XYZ, a per-pad rest baseline (captured at init,
- * recapturable on demand, and slowly drift-corrected in the background per
- * docs/architecture/defaults-and-safeguards.md "Pad baseline calibration
- * and drift compensation"), and a depth magnitude from it. Depth uses Z
+ * Provides raw XYZ, a per-pad rest baseline (captured at init and at the
+ * end of the boot animation, then kept true by services/rest_guard.h:
+ * drift, a re-zero when an untouched key reads pressed, and silence for a
+ * pad touched as its baseline was taken; docs/architecture/
+ * defaults-and-safeguards.md "Pad baseline calibration and drift
+ * compensation"), and a depth magnitude from it. Depth uses Z
  * for every pad (same doc, "Sensing": straight vertical travel,
  * flat-mounted sensor). No per-pad calibration curve yet. */
 
@@ -37,17 +39,16 @@ typedef struct {
  * tiles_hall_last_init_ok(). Failed pads are skipped by the scan instead of
  * blocking the rest.
  *
- * The baseline assumes nothing rests on the pads at power-on. If it did,
- * tiles_hall_recapture_baseline() fixes it at once; the background drift
- * tracker corrects slow thermal/mechanical drift over a session. */
+ * The baseline assumes nothing rests on the pads at power-on; if it did,
+ * the rest guard re-zeroes the pad once it's let go (rest_guard.h). */
 bool tiles_hall_init(void);
 
 /* True if pad (1-24)'s sensor was identified and configured at init. */
 bool tiles_hall_last_init_ok(uint8_t logical_pad);
 
 /* Reads every touched pad (in mux order), then advances the background
- * round-robin by one untouched pad and feeds that read to the drift
- * tracker (so drift is only ever corrected on untouched pads). Call every
+ * round-robin by one untouched pad and feeds that read to its rest guard
+ * (so the baseline only ever moves on untouched pads). Call every
  * main-loop pass. */
 void tiles_hall_scan(void);
 
@@ -55,15 +56,26 @@ void tiles_hall_scan(void);
 tiles_hall_sample_t tiles_hall_get_sample(uint8_t logical_pad);
 
 /* Recaptures every initialized pad's rest-Z baseline from a fresh read,
- * like init does (same "at rest now" assumption). Used by the serial
- * calibration flow (diagnostics/calibration.h). Uninitialized pads are
- * skipped. False if any read failed; that pad keeps its old baseline. */
+ * like init does (same "at rest now" assumption), at the end of the boot
+ * animation and from the serial calibration flow (diagnostics/
+ * calibration.h). A pad touched meanwhile keeps its old baseline, marked
+ * unconfirmed: it reports no depth until seen at rest (rest_guard.h).
+ * Uninitialized pads are skipped. False if any read failed; that pad
+ * keeps its old baseline. */
 bool tiles_hall_recapture_baseline(void);
 
 /* |Z - rest Z| for one pad: an uncalibrated distance from rest, >= 0
- * whatever the sensor's polarity. 0 if out of range, uninitialized or
- * not yet sampled. */
+ * whatever the sensor's polarity. 0 if out of range, uninitialized, not
+ * yet sampled, or its rest unconfirmed. */
 uint16_t tiles_hall_get_depth(uint8_t logical_pad);
+
+/* For INFO: re-zeros so far (all pads), and pads whose rest is unconfirmed
+ * now. */
+typedef struct {
+    uint32_t rezeros;
+    uint8_t unconfirmed;
+} tiles_hall_rest_info_t;
+tiles_hall_rest_info_t tiles_hall_get_rest_info(void);
 
 /* Depth below which a key counts as up: above bare contact (a resting
  * finger reads up to ~96), under the strike threshold (150, expression.h)

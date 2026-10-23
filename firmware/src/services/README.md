@@ -17,7 +17,7 @@ before re-tuning a constant or reviving an approach that was dropped.
 | Module | Role |
 |---|---|
 | `touch` | Both MPR121s → per-pad touched state. |
-| `hall` | 24 TMAG5273s through the muxes → per-pad X/Y/Z and depth. Touched pads are read every pass; the rest round-robin. Rest baseline with slow drift correction. |
+| `hall` | 24 TMAG5273s through the muxes → per-pad X/Y/Z and depth. Touched pads are read every pass; the rest round-robin. Rest baseline kept true by `rest_guard`. |
 | `buttons` | 6 function buttons (debounced) and their LEDs. Owns both PCA9685s (shared with haptics). |
 | `pedal` | 1/4" jack: sustain (CC64) or expression (CC11); sustain style SYNTH (CC64) or HOLD (TILES holds notes). |
 | `power` | Power mode from the TPS2121 status pin + USB → budgets, LED ceiling, haptic voices, CV permission. |
@@ -42,6 +42,7 @@ before re-tuning a constant or reviving an approach that was dropped.
 | `bounce`, `bounce_core` | Bouncing notes: 12 lanes (6 shown, circle + "-"/"+" scroll), a ball bouncing in each from a height of 1-4 pads, playing the lane's scale note when it lands; on the shared clock, MIDI channel 11. The physics is `bounce_core` (no hardware; tested). |
 | `harmony`, `harmony_core` | Prism mode: a chord machine; a chord type and extensions on the right shape the root played on the left. Chromatic roots (columns 1-3); voicing (column 4), quality (column 5) and extensions (column 6), pressed by depth and latched onto the sounding chord; root bass; pedal strum; key lock from the scale picker (roots outside it dark and silent, chords unchanged). The chord maths is `harmony_core` (no hardware; tested). |
 | `light_effects` | The light effects while playing (the Feel menu's Light effects menu): each note lights its pad and the pads around it, mechanical-keyboard style, drawn by `lighting` over the normal look. No hardware; tested. |
+| `rest_guard` | A pad's rest position: slow drift, a re-zero when an untouched key reads pressed for 0.6 s, and silence for a pad touched while its rest was taken until it's seen at rest. No hardware; tested. |
 | `strike_settle` | When a struck pad's note can go: as soon as its velocity is known (the key stopped going down, or the depth score is full), at most the 20 ms follow-through after the strike depth. Used by `expression` and `harmony`. No hardware; tested. |
 | `play_state` | Mode, scale, key and octave saved to flash (through `storage/log_store`, never erasing while the clock runs) and restored at power-up. Tested natively. |
 | `drum_seq` | Drum mode (and Volca mode: the same, each drum a C on its own MIDI channel 1-16, purple): 16 or 32 steps (two pages, diamond flips) on columns 1-4, 8 drums on columns 5-6 (tap selects, push plays, circle + push rolls), banks of 8 in Drum Rack order, MIDI channel 10, saved through `storage/log_store`. The step engine, layout and save format are `drum_pattern` (no hardware; tested). |

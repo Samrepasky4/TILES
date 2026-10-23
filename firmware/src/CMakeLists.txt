@@ -39,6 +39,7 @@ add_executable(sentia_tiles_firmware
     services/bounce.c
     services/bounce_core.c
     services/strike_settle.c
+    services/rest_guard.c
     services/light_effects.c
     services/play_state.c
     services/drum_pattern.c
