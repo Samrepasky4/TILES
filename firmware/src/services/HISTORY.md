@@ -10172,3 +10172,26 @@ change. Search it by file or feature name.
   echo notes and Song capture flashes stay full; Off keeps the full look.
   The Light effects preview now draws over the melodic look dimmed the
   same way (full while resting on Off), so it shows what play will.
+- **Light effects on the drum pads and over the step grids (Alpha 4,
+  2026-10-23).** Asked: "the effects should affect the drum player pads
+  that play when pressed once and they should all carry accompanying
+  version of the effects for sequencer modes, versions that can be
+  represented within a sequencer without distracting too much".
+  - Drums/Volca: a drum pad pushed live is a hit (drum_seq.c drum_hit(),
+    released on lift); held, it shows Touch colour's tint instead of white.
+    The selected drum's steps, as the playhead sounds them, are playback
+    hits on their step pads (with the step's haptic pulse).
+  - Sequencer: the viewed lane's steps, as they sound (seq_fire_note()).
+  - Sequencer versions (light_effects.c, tiles_fx_set_sequencer()): every
+    effect at FX_SEQ_LEVEL (0.6); a playback hit at FX_PLAYBACK_LEVEL
+    (0.45) of a live one and released at once, so Afterglow and Touch
+    colour leave a trail behind the playhead; Ripple and Prism ripple stop
+    1.5 pads out, Cross 2 pads, Fireworks throws 2 sparks next to the hit
+    (4, up to 2 pads away, in play), Rise climbs 2 rows (4). First guesses.
+  - Drawing (lighting.c): op_mode.c says every scan whether the standby
+    frame is a step grid (tiles_lighting_set_grid_effects(): the
+    sequencer's step view, drum/Volca mode; not their menus, edit pages,
+    pattern bank or captures, nor under the Feel menu); then the effect is
+    screened over the frame (standby_pad_rgb()), 3 pads a pass as usual.
+    A mode change clears the effect's light. Song and Bouncing notes are
+    not included.

@@ -5,9 +5,10 @@
  * Picked in the Light effects menu (expression_control.h: Feel menu, then
  * circle + square), setting look.play_effect. Pure, no hardware:
  * services/lighting.c draws it over the pads' normal look, dimmed to
- * TILES_LIGHTING_FX_REST_LEVEL (the modes it lights itself, not the ones
- * that draw the whole grid), expression.c and
- * op_mode.c report the notes. Host-tested in test/test_light_effects.c.
+ * TILES_LIGHTING_FX_REST_LEVEL (the modes it lights itself), and over the
+ * step grids in a quieter sequencer version (tiles_fx_set_sequencer());
+ * expression.c, op_mode.c and drum_seq.c report the notes. Host-tested in
+ * test/test_light_effects.c.
  *
  * Pads are logical 1-24 (1 = top-left, row-major), as everywhere. */
 
@@ -40,6 +41,18 @@ tiles_fx_t tiles_fx_get(void);
 /* A note struck on `pad` (1-24) with `velocity`; and its release. */
 void tiles_fx_hit(uint8_t pad, uint8_t velocity, uint32_t now_ms);
 void tiles_fx_release(uint8_t pad, uint32_t now_ms);
+
+/* A step the playhead sounds: fainter than a pad pressed live, and
+ * released at once (Afterglow and Touch colour fade from it, a trail
+ * behind the playhead). */
+void tiles_fx_playback_hit(uint8_t pad, uint8_t velocity, uint32_t now_ms);
+
+/* Sequencer versions (the step grids: Sequencer, Drums, Volca), so the
+ * steps stay readable: every effect fainter, and the travelling ones
+ * stay near the hit (Ripple and Prism ripple a pad, Cross two, Fireworks
+ * two sparks next to it, Rise two rows). Set by services/lighting.c with
+ * the grid's effects (tiles_lighting_set_grid_effects()). */
+void tiles_fx_set_sequencer(bool on);
 
 /* Once per lighting pass: the slow fields (warmth, ink) move on. */
 void tiles_fx_step(uint32_t now_ms);

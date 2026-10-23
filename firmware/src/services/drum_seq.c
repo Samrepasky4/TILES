@@ -8,6 +8,7 @@
 #include "hall.h"
 #include "haptics.h"
 #include "kv_store.h"
+#include "light_effects.h"
 #include "log_store.h"
 #include "lighting.h"
 #include "midi_channels.h"
@@ -177,10 +178,13 @@ static void out_note_on(uint8_t note, uint8_t velocity, void *ctx) {
         }
     }
     /* The selected drum's hits pulse their step pad, so a finger resting on
-     * the grid feels the beat. */
+     * the grid feels the beat, and light it (the light effect's sequencer
+     * version). */
     if (s_shown && note == tiles_drum_note(s_bank, s_voice) && !s_rep_active &&
         s_player.step / TILES_DRUM_PAGE_STEPS == s_page) {
-        tiles_haptics_trigger_touch_pulse(tiles_drum_pad_for_step(s_player.step));
+        uint8_t step_pad = tiles_drum_pad_for_step(s_player.step);
+        tiles_haptics_trigger_touch_pulse(step_pad);
+        tiles_fx_playback_hit(step_pad, velocity, now);
     }
 }
 
@@ -223,6 +227,7 @@ static void end_live_notes(void) {
         if (s_drum_sounding[v]) {
             drum_midi_off(s_drum_sounding_note[v]);
             tiles_haptics_stop(tiles_drum_pad_for_voice(v));
+            tiles_fx_release(tiles_drum_pad_for_voice(v), now_ms());
             s_drum_sounding[v] = false;
         }
         s_drum_awaiting[v] = false;
@@ -431,6 +436,7 @@ static void drum_hit(uint8_t voice, uint8_t pad, uint8_t velocity) {
     uint8_t note = tiles_drum_note(s_bank, voice);
     drum_midi_on(note, velocity);
     tiles_haptics_trigger_kick(pad, velocity);
+    tiles_fx_hit(pad, velocity, now_ms()); /* the light effect, as in play */
     s_drum_sounding[voice] = true;
     s_drum_sounding_note[voice] = note;
     s_drum_fired_ms[voice] = now_ms();
@@ -484,6 +490,7 @@ static void handle_drum_pad(uint8_t voice, uint8_t pad, bool touched, bool was, 
         if (s_drum_sounding[voice]) {
             drum_midi_off(s_drum_sounding_note[voice]);
             tiles_haptics_stop(pad);
+            tiles_fx_release(pad, now);
             s_drum_sounding[voice] = false;
         }
         s_drum_awaiting[voice] = false;
@@ -683,7 +690,13 @@ void tiles_drum_seq_render(uint32_t now, float beat_flash, float diamond_led, bo
         if (now - s_drum_cleared_ms[v] < DRUM_CLEAR_FLASH_MS && s_drum_cleared_ms[v] != 0u) {
             r = 1.0f; g = 0.0f; b = 0.0f; /* cleared */
         } else if (s_drum_sounding[v]) {
-            r = g = b = 1.0f; /* held after a push */
+            /* Held after a push: white, or Touch colour's tint. */
+            float tint[3];
+            if (tiles_fx_pressed_colour(pad, tint)) {
+                r = tint[0]; g = tint[1]; b = tint[2];
+            } else {
+                r = g = b = 1.0f;
+            }
         } else if (s_drum_fired_any[v] && now - s_drum_fired_ms[v] < DRUM_FIRE_FLASH_MS) {
             r = g = b = DRUM_FIRE_FLASH_LEVEL;
         } else if (v == s_voice) {

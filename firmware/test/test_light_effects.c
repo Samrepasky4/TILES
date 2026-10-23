@@ -116,7 +116,30 @@ int main(void) {
         assert(soft[1] > hard[1] + 0.2f && hard[0] > 0.4f);
     }
 
-    /* 10. Every effect is quiet again a while after a hit, and ignores bad pads */
+    /* 10. Sequencer versions: a ripple stays next to the hit; a playhead
+     * hit is fainter than a live press and fades at once (a trail) */
+    tiles_fx_set_sequencer(true);
+    tiles_fx_set(TILES_FX_RIPPLE);
+    tiles_fx_hit(15, 127, 1000u);
+    assert(tiles_fx_pad_light(16, 1111u, c));                      /* one pad over */
+    assert(!tiles_fx_pad_light(17, 1222u, c) || lum(c) < 0.02f);    /* two: dark */
+    float live[3], played[3];
+    tiles_fx_set(TILES_FX_HALO);
+    tiles_fx_hit(15, 100, 1000u);
+    tiles_fx_pad_light(16, 1010u, live);
+    tiles_fx_set(TILES_FX_HALO);
+    tiles_fx_playback_hit(15, 100, 1000u);
+    tiles_fx_pad_light(16, 1010u, played);
+    assert(lum(played) > 0.02f && lum(played) < lum(live) * 0.6f);
+    tiles_fx_set(TILES_FX_AFTERGLOW);
+    tiles_fx_playback_hit(3, 127, 1000u);
+    assert(tiles_fx_pad_light(3, 1100u, c) && !tiles_fx_pad_light(3, 3500u, c));
+    tiles_fx_set_sequencer(false);
+    tiles_fx_set(TILES_FX_RIPPLE);
+    tiles_fx_hit(15, 127, 1000u);
+    assert(tiles_fx_pad_light(17, 1222u, c) && lum(c) > 0.3f);      /* full again */
+
+    /* 11. Every effect is quiet again a while after a hit, and ignores bad pads */
     for (int fx = 0; fx < TILES_FX_COUNT; fx++) {
         tiles_fx_set((tiles_fx_t)fx);
         tiles_fx_hit(0, 100, 0u);

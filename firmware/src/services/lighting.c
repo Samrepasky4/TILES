@@ -338,6 +338,9 @@ static uint8_t s_live_cursor;
 static float s_play_fx_written[TILES_NUM_PADS][3];
 #define PLAY_FX_WRITES_PER_PASS 2u /* a pad write is ~0.3 ms */
 #define PLAY_FX_CHANGE_MIN 0.02f
+/* The standby frame is a step grid: the effect draws over it
+ * (tiles_lighting_set_grid_effects()). */
+static bool s_grid_fx;
 
 static float clamp01(float v) {
     if (v < 0.0f) {
@@ -481,6 +484,24 @@ static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
     return c;
 }
 
+static bool grid_fx_on(void) {
+    return s_grid_fx && s_standby_active && tiles_fx_get() != TILES_FX_OFF &&
+           !tiles_expression_control_owns_pad_grid();
+}
+
+/* Under standby: the frame's colour, with a step grid's light effect
+ * screened over it. */
+static tiles_rgb01_t standby_pad_rgb(uint8_t pad_index, uint32_t now_ms) {
+    tiles_rgb01_t c = s_pad_standby_rgb[pad_index];
+    float fx[3];
+    if (grid_fx_on() && tiles_fx_pad_light((uint8_t)(pad_index + 1u), now_ms, fx)) {
+        c.r = 1.0f - (1.0f - clamp01(c.r)) * (1.0f - fx[0]);
+        c.g = 1.0f - (1.0f - clamp01(c.g)) * (1.0f - fx[1]);
+        c.b = 1.0f - (1.0f - clamp01(c.b)) * (1.0f - fx[2]);
+    }
+    return c;
+}
+
 /* A pad's resting look (no touch, echo or capture): bass frets, the chord
  * strip, layout gaps and quarter tones, custom colours, the scheme. */
 static tiles_rgb01_t pad_idle_rgb(uint8_t logical_pad) {
@@ -532,7 +553,7 @@ static tiles_rgb01_t pad_idle_rgb(uint8_t logical_pad) {
  * (apply_pad_fx()). The single source of truth for a pad's look. */
 static tiles_rgb01_t pad_look_rgb(uint8_t pad_index) {
     if (s_standby_active) {
-        return s_pad_standby_rgb[pad_index];
+        return standby_pad_rgb(pad_index, to_ms_since_boot(get_absolute_time()));
     }
     if (s_pad_press[pad_index] > 0.0f) {
         /* Touched pad: floored at the idle level, never dark. */
@@ -634,15 +655,22 @@ static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
 static void write_pad(uint8_t pad_index);
 
 /* Under standby: up to STANDBY_WRITES_PER_PASS pads whose standby colour
- * differs most from what they show (one never written since standby began
- * goes first). True if it wrote any. */
-static bool service_standby_frame(void) {
+ * (with a step grid's effect) differs most from what they show (one never
+ * written since standby began goes first). True if it wrote any. */
+static bool service_standby_frame(uint32_t now_ms) {
+    if (grid_fx_on()) {
+        tiles_fx_step(now_ms);
+    }
+    tiles_rgb01_t target[TILES_NUM_PADS];
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        target[i] = standby_pad_rgb(i, now_ms);
+    }
     bool any = false;
     for (uint8_t n = 0; n < STANDBY_WRITES_PER_PASS; n++) {
         uint8_t best = TILES_NUM_PADS;
         float best_change = 0.004f;
         for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
-            const tiles_rgb01_t *want = &s_pad_standby_rgb[i], *shown = &s_standby_written[i];
+            const tiles_rgb01_t *want = &target[i], *shown = &s_standby_written[i];
             float change = !s_standby_written_valid[i]
                                ? 2.0f
                                : fmaxf(fabsf(want->r - shown->r), fmaxf(fabsf(want->g - shown->g), fabsf(want->b - shown->b)));
@@ -710,15 +738,16 @@ static void write_pad(uint8_t pad_index /* 0-23 */) {
 
     s_pad_fx_shown[pad_index] = pad_fx_active(pad_index);
     s_pad_written_ms[pad_index] = to_ms_since_boot(get_absolute_time());
+    tiles_rgb01_t desired = pad_desired_rgb(pad_index);
     if (s_standby_active) {
-        s_standby_written[pad_index] = s_pad_standby_rgb[pad_index];
+        s_standby_written[pad_index] = desired;
         s_standby_written_valid[pad_index] = true;
     }
     uint32_t pixel;
     if (s_test_white_level != 0u) {
         pixel = tiles_sk6805_pack_rgb(s_test_white_level, s_test_white_level, s_test_white_level);
     } else {
-        tiles_rgb01_t desired = apply_pad_fx(pad_index, pad_desired_rgb(pad_index));
+        desired = apply_pad_fx(pad_index, desired);
         float scale = (float)static_ceiling_level() * led_intensity();
         uint8_t r = (uint8_t)(scale * clamp01(desired.r));
         uint8_t g = (uint8_t)(scale * clamp01(desired.g));
@@ -1041,7 +1070,7 @@ void tiles_lighting_service(void) {
     }
     /* Then a standby screen's changes, or the playing light effect, before
      * the round-robin. */
-    if (s_standby_active ? service_standby_frame() : service_play_fx(now_ms)) {
+    if (s_standby_active ? service_standby_frame(now_ms) : service_play_fx(now_ms)) {
         return;
     }
     write_pad(s_service_cursor);
@@ -1059,6 +1088,11 @@ void tiles_lighting_set_mode_underglow(float r, float g, float b) {
     if (s_initialized) {
         write_underglow();
     }
+}
+
+void tiles_lighting_set_grid_effects(bool on) {
+    s_grid_fx = on;
+    tiles_fx_set_sequencer(on);
 }
 
 void tiles_lighting_set_standby_active(bool active) {

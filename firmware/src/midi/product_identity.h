@@ -52,7 +52,7 @@
 #define TILES_FW_STAGE_BETA 1u
 #define TILES_FW_STAGE TILES_FW_STAGE_ALPHA
 #define TILES_FW_STAGE_NAME "alpha" /* matches TILES_FW_STAGE */
-#define TILES_FW_BUILD 3u
+#define TILES_FW_BUILD 4u
 
 #define TILES_USB_BCD_DEVICE                                       \
     ((uint16_t)((TILES_FW_STAGE << 12) |                           \

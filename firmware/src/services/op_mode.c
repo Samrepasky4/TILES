@@ -810,6 +810,7 @@ static void seq_fire_note(uint8_t lane, uint8_t step) {
     s_seq_sounding_haptics[lane] = seq_lane_haptics_visible(lane);
     if (s_seq_sounding_haptics[lane]) {
         tiles_haptics_trigger_kick(pad, OP_SEQ_VELOCITY);
+        tiles_fx_playback_hit(pad, OP_SEQ_VELOCITY, to_ms_since_boot(get_absolute_time()));
     }
     s_seq_note_sounding[lane] = true;
     s_seq_sounding_pad[lane] = pad;
@@ -2135,6 +2136,9 @@ static void set_volca(bool volca) {
 }
 
 static void set_active_mode(tiles_op_mode_t mode) {
+    if (mode != s_active_mode) {
+        tiles_fx_set(tiles_fx_get()); /* the last mode's light, gone */
+    }
     if (s_song_capture_active && mode != s_active_mode) {
         /* Any real mode change ends Song capture. */
         song_capture_exit();
@@ -3388,6 +3392,13 @@ void tiles_op_mode_playback_tick(void) {
 
 void tiles_op_mode_scan(void) {
     uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+
+    /* The light effect draws over the step grids only: the sequencer's step
+     * view and drum/Volca mode (not their menus, edit pages or captures). */
+    tiles_lighting_set_grid_effects(
+        !s_seq_capture_mode_active &&
+        (mode_is_shown(OP_MODE_DRUM) ||
+         (mode_is_shown(OP_MODE_SEQUENCER) && !s_pattern_bank_visible && s_seq_edit_mode == OP_SEQ_EDIT_NONE)));
 
     /* Mode, scale, key and octave, for the next power-up. Before the early
      * return below, so standby (or a game, or transpose) can't hold up a

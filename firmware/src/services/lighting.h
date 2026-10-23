@@ -99,6 +99,12 @@ void tiles_lighting_service(void);
  * repaint on their next press update (touch calls every scan). */
 void tiles_lighting_set_standby_active(bool active);
 
+/* The standby frame is a step grid (the sequencer's step view, Drums,
+ * Volca): the light effect, in its sequencer version (light_effects.h),
+ * draws over it. op_mode.c sets it every scan; menus over the grid turn
+ * it off. */
+void tiles_lighting_set_grid_effects(bool on);
+
 /* The underglow's colour outside standby: the active mode's colour (op_mode.c
  * sets it on every mode change). Modes that draw through standby set their
  * own, the same colour. */

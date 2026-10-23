@@ -11,10 +11,15 @@
 #define FX_MAX_HITS 16
 #define FX_HIT_LIFE_S 2.0f
 #define FX_PI 3.14159265f
+/* Sequencer versions: the brightness of every effect, and of a playhead
+ * hit next to a pad pressed live (first guesses). */
+#define FX_SEQ_LEVEL 0.6f
+#define FX_PLAYBACK_LEVEL 0.45f
 
 typedef struct {
     uint8_t pad; /* 1-24, 0 = free */
     float v;     /* velocity 0-1 */
+    float level; /* 1 pressed live, FX_PLAYBACK_LEVEL from the playhead */
     uint32_t t_ms;
     uint32_t seed;
 } fx_hit_t;
@@ -24,11 +29,13 @@ static fx_hit_t s_hits[FX_MAX_HITS];
 static uint8_t s_next_hit;
 static bool s_held[FX_PADS];
 static float s_vel[FX_PADS];
+static float s_level[FX_PADS]; /* the last hit's level (fx_hit_t) */
 static uint32_t s_up_ms[FX_PADS];
 static bool s_released[FX_PADS]; /* released at least once (afterglow) */
 static float s_heat[FX_PADS];
 static float s_ink[FX_PADS][3];
 static uint32_t s_step_ms;
+static bool s_seq; /* sequencer versions */
 
 static float clampf(float x, float lo, float hi) {
     return x < lo ? lo : (x > hi ? hi : x);
@@ -154,27 +161,50 @@ tiles_fx_t tiles_fx_get(void) {
     return s_fx;
 }
 
-void tiles_fx_hit(uint8_t pad, uint8_t velocity, uint32_t now_ms) {
+void tiles_fx_set_sequencer(bool on) {
+    s_seq = on;
+}
+
+/* A hit's travelling light, heat and ink. False if there's no effect. */
+static bool add_hit(uint8_t pad, uint8_t velocity, float level, uint32_t now_ms) {
     if (s_fx == TILES_FX_OFF || pad < 1u || pad > FX_PADS) {
-        return;
+        return false;
     }
     uint8_t i = (uint8_t)(pad - 1u);
     float v = clampf((float)velocity / 127.0f, 0.0f, 1.0f);
-    s_held[i] = true;
-    s_vel[i] = v;
     fx_hit_t *h = &s_hits[s_next_hit];
     s_next_hit = (uint8_t)((s_next_hit + 1u) % FX_MAX_HITS);
     h->pad = pad;
     h->v = v;
+    h->level = level;
     h->t_ms = now_ms;
     h->seed = now_ms * 2654435761u + pad;
     /* Heatmap: one hard hit reaches violet-magenta, a soft one stays blue. */
     float heat = s_fx == TILES_FX_HEATMAP ? 0.1f + 0.45f * v : 0.22f + 0.2f * v;
-    s_heat[i] = clampf(s_heat[i] + heat, 0.0f, 1.0f);
+    s_heat[i] = clampf(s_heat[i] + heat * level, 0.0f, 1.0f);
     float c[3];
     hsv(velocity_hue(v), 1.0f, 1.0f, c);
     for (int k = 0; k < 3; k++) {
-        s_ink[i][k] += c[k] * v;
+        s_ink[i][k] += c[k] * v * level;
+    }
+    return true;
+}
+
+void tiles_fx_hit(uint8_t pad, uint8_t velocity, uint32_t now_ms) {
+    if (add_hit(pad, velocity, 1.0f, now_ms)) {
+        s_held[pad - 1u] = true;
+        s_vel[pad - 1u] = clampf((float)velocity / 127.0f, 0.0f, 1.0f);
+        s_level[pad - 1u] = 1.0f;
+    }
+}
+
+void tiles_fx_playback_hit(uint8_t pad, uint8_t velocity, uint32_t now_ms) {
+    if (add_hit(pad, velocity, FX_PLAYBACK_LEVEL, now_ms) && !s_held[pad - 1u]) {
+        uint8_t i = (uint8_t)(pad - 1u);
+        s_vel[i] = clampf((float)velocity / 127.0f, 0.0f, 1.0f);
+        s_level[i] = FX_PLAYBACK_LEVEL;
+        s_up_ms[i] = now_ms;
+        s_released[i] = true;
     }
 }
 
@@ -229,18 +259,19 @@ void tiles_fx_step(uint32_t now_ms) {
     }
 }
 
-/* One hit's light on `pad`, t seconds after it. */
+/* One hit's light on `pad`, t seconds after it. The sequencer versions
+ * keep the travelling ones near the hit (tiles_fx_set_sequencer()). */
 static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
     float d = dist(pad, h->pad);
     int same_row = row_of(pad) == row_of(h->pad), same_col = col_of(pad) == col_of(h->pad);
-    float c[3];
+    float lv = h->level, c[3];
     switch (s_fx) {
     case TILES_FX_RIPPLE: {
-        if (t > 1.0f) {
+        if (t > 1.0f || (s_seq && d > 1.5f)) {
             return;
         }
         float w = expf(-(d - t * 9.0f) * (d - t * 9.0f) / (2.0f * 0.42f * 0.42f));
-        add_light(out, WHITE, h->v * w * (1.0f - t));
+        add_light(out, WHITE, lv * h->v * w * (1.0f - t));
         return;
     }
     case TILES_FX_CROSS: {
@@ -249,31 +280,34 @@ static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
         }
         float k = fabsf((float)(row_of(pad) - row_of(h->pad))) + fabsf((float)(col_of(pad) - col_of(h->pad)));
         float ta = k / 16.0f;
-        if (t < ta) {
+        if (t < ta || (s_seq && k > 2.0f)) {
             return;
         }
-        add_light(out, WHITE, h->v * expf(-(t - ta) / 0.2f) * (1.0f - k * 0.09f));
+        add_light(out, WHITE, lv * h->v * expf(-(t - ta) / 0.2f) * (1.0f - k * 0.09f));
         return;
     }
     case TILES_FX_HALO:
         if (d == 0.0f || d > 1.9f) {
             return;
         }
-        add_light(out, WHITE, 0.8f * h->v * (1.0f - d / 2.0f) * expf(-t / 0.3f));
+        add_light(out, WHITE, lv * 0.8f * h->v * (1.0f - d / 2.0f) * expf(-t / 0.3f));
         return;
     case TILES_FX_PRISM_RIPPLE: {
-        if (t > 1.1f) {
+        if (t > 1.1f || (s_seq && d > 1.5f)) {
             return;
         }
         float w = expf(-(d - t * 8.0f) * (d - t * 8.0f) / (2.0f * 0.48f * 0.48f));
         hsv(velocity_hue(h->v) + d * 30.0f, 1.0f, 1.0f, c);
-        add_light(out, c, h->v * w * (1.0f - t / 1.1f));
+        add_light(out, c, lv * h->v * w * (1.0f - t / 1.1f));
         return;
     }
     case TILES_FX_FIREWORKS: {
-        for (uint32_t s = 0; s < 4u; s++) {
-            int sr = row_of(h->pad) + (int)lroundf((rand01(h->seed + s * 7u) - 0.5f) * 4.0f);
-            int sc = col_of(h->pad) + (int)lroundf((rand01(h->seed + s * 13u) - 0.5f) * 5.0f);
+        /* Four sparks up to two pads away; two next to it in a sequencer. */
+        uint32_t sparks = s_seq ? 2u : 4u;
+        float spread = s_seq ? 2.0f : 4.0f;
+        for (uint32_t s = 0; s < sparks; s++) {
+            int sr = row_of(h->pad) + (int)lroundf((rand01(h->seed + s * 7u) - 0.5f) * spread);
+            int sc = col_of(h->pad) + (int)lroundf((rand01(h->seed + s * 13u) - 0.5f) * (spread + 1.0f));
             if (sr != row_of(pad) || sc != col_of(pad)) {
                 continue;
             }
@@ -282,7 +316,7 @@ static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
                 continue;
             }
             hsv(velocity_hue(h->v) + (rand01(h->seed + s) - 0.5f) * 90.0f, 1.0f, 1.0f, c);
-            add_light(out, c, h->v * expf(-(t - ta) / 0.28f));
+            add_light(out, c, lv * h->v * expf(-(t - ta) / 0.28f));
         }
         return;
     }
@@ -290,12 +324,12 @@ static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
         if (!same_col) {
             return;
         }
-        float top = 1.0f + h->v * 3.0f;
+        float top = 1.0f + h->v * (s_seq ? 1.0f : 3.0f);
         float env = t < 0.06f ? t / 0.06f : expf(-(t - 0.06f) / 0.45f);
         float height = (float)(FX_ROWS - row_of(pad)); /* 1 = bottom row */
         float l = clampf(top * env - (height - 1.0f), 0.0f, 1.0f);
         hsv(velocity_hue(h->v), 1.0f, 1.0f, c);
-        add_light(out, c, l * (0.55f + 0.45f * h->v));
+        add_light(out, c, lv * l * (0.55f + 0.45f * h->v));
         return;
     }
     default:
@@ -325,7 +359,7 @@ bool tiles_fx_pad_light(uint8_t pad, uint32_t now_ms, float rgb[3]) {
         if (!s_held[i] && s_released[i]) {
             float k = (float)(now_ms - s_up_ms[i]) / 1000.0f;
             if (k < 2.0f) {
-                add_light(rgb, WHITE, s_vel[i] * expf(-k / 0.32f));
+                add_light(rgb, WHITE, s_level[i] * s_vel[i] * expf(-k / 0.32f));
             }
         }
         break;
@@ -334,7 +368,7 @@ bool tiles_fx_pad_light(uint8_t pad, uint32_t now_ms, float rgb[3]) {
             float k = (float)(now_ms - s_up_ms[i]) / 1000.0f;
             if (k < 2.0f) {
                 velocity_colour(s_vel[i], c);
-                add_light(rgb, c, expf(-k / 0.4f));
+                add_light(rgb, c, s_level[i] * expf(-k / 0.4f));
             }
         }
         break;
@@ -356,6 +390,11 @@ bool tiles_fx_pad_light(uint8_t pad, uint32_t now_ms, float rgb[3]) {
         break;
     default:
         break;
+    }
+    if (s_seq) {
+        for (int ch = 0; ch < 3; ch++) {
+            rgb[ch] *= FX_SEQ_LEVEL;
+        }
     }
     return rgb[0] + rgb[1] + rgb[2] > 0.004f;
 }
