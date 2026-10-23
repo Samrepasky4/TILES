@@ -10223,3 +10223,12 @@ change. Search it by file or feature name.
   power mode's ceiling (50% USB, 90% 12 V); the button LEDs went to full
   PWM. buttons.c write_led_level() now scales every level by that ceiling
   times BUTTON_LED_MATCH (0.8, first guess), boot animation included.
+- **Button LED steps even to the eye (Alpha 4.3, 2026-10-23).** Asked,
+  after 4.2 dimmed them: "i fear lights might be choppy". The 256 levels
+  were even in PWM duty, and 4.2's scale left a full pulse ~100 of them,
+  the dim end coarsest (one step there is a large share of the light).
+  Now quantized in square-root space: 256 steps even in brightness
+  (~160 across the dimmed range), the 12-bit PWM resolving the fine dim
+  ones. The PCA9685s still run their power-on ~200 Hz PWM (no prescale
+  is set; the haptic motors share the chips), which every lit button now
+  uses: raising it would change the motors' drive, untried.

@@ -7,6 +7,8 @@
 #include "hardware/gpio.h"
 #include "pico/time.h"
 
+#include <math.h>
+
 #define NUM_BUTTONS 6u
 #define DEBOUNCE_MS 10u /* handoff scheduler_defaults: button_debounce_ms */
 
@@ -111,9 +113,11 @@ static void write_led_level(uint8_t index, float level_0_to_1) {
     }
     level_0_to_1 *= button_led_scale();
 
-    /* 256 steps: smooth to the eye, and a slow pulse changes the code (and
-     * writes) far less often than every pass. */
-    level_0_to_1 = (float)(int)(level_0_to_1 * 255.0f + 0.5f) / 255.0f;
+    /* 256 steps, even to the eye (in square-root space): fine at the dim
+     * end, where each step shows, coarse where it doesn't, and a slow pulse
+     * still changes the code (and writes) less often than every pass. */
+    float q = (float)(int)(sqrtf(level_0_to_1) * 255.0f + 0.5f) / 255.0f;
+    level_0_to_1 = q * q;
 
     if (level_0_to_1 <= 0.0f) {
         write_led_full(index, false); /* dark */
