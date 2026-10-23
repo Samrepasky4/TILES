@@ -1680,7 +1680,7 @@ void tiles_expression_scan(void) {
                 tiles_midi_note_on(s->midi_channel, s->active_note, velocity);
                 tiles_midi_out_batch_end();
                 tiles_cv_gate_note_on(s->active_note, velocity);
-                tiles_fx_hit(pad, velocity, (uint8_t)(s->active_note % 12u), now_ms); /* light effects */
+                tiles_fx_hit(pad, velocity, now_ms); /* light effects */
                 /* Same velocity for the haptic kick and the MIDI note. */
                 tiles_haptics_trigger_kick(pad, velocity);
                 s->last_sent_aftertouch = 0u; /* the setup just set it */

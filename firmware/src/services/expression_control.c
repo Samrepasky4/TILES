@@ -384,8 +384,9 @@ static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
 
 /* Both deeper menus: a finger resting on a pad (no press) previews it on
  * the whole grid after DEEP_PREVIEW_DELAY_MS (a brush past a pad shows
- * nothing): Light effects plays a short scripted phrase through the effect,
- * looping; Layouts shows the layout's resting colours (roots, fifths,
+ * nothing): Light effects plays the touched pad as if it were pressed,
+ * repeatedly, soft to hard and back (the colour effects' hues follow
+ * velocity); Layouts shows the layout's resting colours (roots, fifths,
  * sharps, gaps, quarter tones). A press (Hall past the strike depth) picks
  * it and closes; lifting goes back to the menu, nothing changed. A touch on
  * another pad moves the preview there. */
@@ -394,14 +395,9 @@ static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
 #define DEEP_FRAME_WRITES 3u /* pads per scan (lighting.h: standby frame) */
 #define DEMO_LOOP_MS 1800u
 #define DEMO_NOTE_MS 160u
-static const struct {
-    uint16_t at_ms;
-    uint8_t pad, velocity;
-} DEMO[] = {
-    {0u, 15u, 110u},  {220u, 9u, 80u},  {440u, 22u, 127u}, {660u, 4u, 70u},
-    {880u, 17u, 100u}, {1100u, 8u, 90u}, {1320u, 20u, 120u}, {1540u, 12u, 75u},
-};
-#define DEMO_HITS (sizeof(DEMO) / sizeof(DEMO[0]))
+static const uint8_t DEMO_VELOCITY[] = {35u, 60u, 85u, 110u, 127u, 95u, 65u, 45u};
+#define DEMO_HITS (sizeof(DEMO_VELOCITY) / sizeof(DEMO_VELOCITY[0]))
+#define DEMO_STEP_MS (DEMO_LOOP_MS / DEMO_HITS)
 /* s_preview_pad: the pad being touched (0 = none); s_preview_on: past the
  * delay, showing (declared above, for open_deep()). */
 static uint32_t s_preview_touch_ms; /* when it was touched */
@@ -411,6 +407,7 @@ static uint32_t s_demo_last_ms;      /* loop time already played up to */
 
 static void preview_end(void) {
     if (s_preview_on && s_deep == DEEP_EFFECTS) {
+        tiles_fx_release(s_preview_pad, 0u); /* its note may be down */
         tiles_fx_set(s_demo_saved);
     }
     s_preview_pad = 0u;
@@ -427,22 +424,25 @@ static void preview_start(uint32_t now_ms) {
     }
 }
 
-static void demo_run(uint32_t now_ms) {
+/* Strikes and releases the touched pad on the loop's beats; true while
+ * its note is down. */
+static bool demo_run(uint32_t now_ms) {
     uint32_t t = (now_ms - s_demo_start_ms) % DEMO_LOOP_MS;
     uint32_t from = s_demo_last_ms;
     s_demo_last_ms = t;
     for (uint8_t i = 0; i < DEMO_HITS; i++) {
-        uint32_t on = DEMO[i].at_ms, off = (DEMO[i].at_ms + DEMO_NOTE_MS) % DEMO_LOOP_MS;
+        uint32_t on = i * DEMO_STEP_MS, off = on + DEMO_NOTE_MS;
         bool on_due = t >= from ? (on > from && on <= t) : (on > from || on <= t);
         bool off_due = t >= from ? (off > from && off <= t) : (off > from || off <= t);
         if (on_due) {
-            tiles_fx_hit(DEMO[i].pad, DEMO[i].velocity, (uint8_t)(DEMO[i].pad % 12u), now_ms);
+            tiles_fx_hit(s_preview_pad, DEMO_VELOCITY[i], now_ms);
         }
         if (off_due) {
-            tiles_fx_release(DEMO[i].pad, now_ms);
+            tiles_fx_release(s_preview_pad, now_ms);
         }
     }
     tiles_fx_step(now_ms);
+    return t % DEMO_STEP_MS < DEMO_NOTE_MS;
 }
 
 /* The previewed layout's resting colours, read with it switched in for
@@ -506,16 +506,20 @@ static void handle_deep_menu(uint32_t now_ms) {
         }
     }
     if (s_preview_on) {
+        float *touched = frame[s_preview_pad - 1u];
         if (s_deep == DEEP_EFFECTS) {
-            demo_run(now_ms);
+            bool down = demo_run(now_ms);
             for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
                 tiles_fx_pad_light(pad, now_ms, frame[pad - 1u]);
             }
+            /* Pressed, as in play: white, or Touch colour's tint. */
+            if (down && !tiles_fx_pressed_colour(s_preview_pad, touched)) {
+                touched[0] = touched[1] = touched[2] = 1.0f;
+            }
         } else {
             layout_preview_frame(frame);
+            touched[0] = touched[1] = touched[2] = submenu_selected_pulse_level(now_ms) * 0.5f;
         }
-        float pulse = submenu_selected_pulse_level(now_ms) * 0.5f;
-        frame[s_preview_pad - 1u][0] = frame[s_preview_pad - 1u][1] = frame[s_preview_pad - 1u][2] = pulse;
         tiles_lighting_set_standby_frame(frame, DEEP_FRAME_WRITES);
         return;
     }

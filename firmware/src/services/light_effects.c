@@ -15,7 +15,6 @@
 typedef struct {
     uint8_t pad; /* 1-24, 0 = free */
     float v;     /* velocity 0-1 */
-    float hue;   /* the note's hue, degrees */
     uint32_t t_ms;
     uint32_t seed;
 } fx_hit_t;
@@ -94,8 +93,10 @@ static float dist(uint8_t a, uint8_t b) {
     return sqrtf(dr * dr + dc * dc);
 }
 
-static float pitch_hue(uint8_t pc) {
-    return 300.0f - 30.0f * (float)(pc % 12u); /* C magenta, then around the wheel */
+/* The colour effects' hue, degrees: soft a cool blue, through violet and
+ * magenta, hard a hot pink (first guess). */
+static float velocity_hue(float v) {
+    return 205.0f + 130.0f * v;
 }
 
 static float rand01(uint32_t x) {
@@ -153,7 +154,7 @@ tiles_fx_t tiles_fx_get(void) {
     return s_fx;
 }
 
-void tiles_fx_hit(uint8_t pad, uint8_t velocity, uint8_t pitch_class, uint32_t now_ms) {
+void tiles_fx_hit(uint8_t pad, uint8_t velocity, uint32_t now_ms) {
     if (s_fx == TILES_FX_OFF || pad < 1u || pad > FX_PADS) {
         return;
     }
@@ -165,12 +166,13 @@ void tiles_fx_hit(uint8_t pad, uint8_t velocity, uint8_t pitch_class, uint32_t n
     s_next_hit = (uint8_t)((s_next_hit + 1u) % FX_MAX_HITS);
     h->pad = pad;
     h->v = v;
-    h->hue = pitch_hue(pitch_class);
     h->t_ms = now_ms;
     h->seed = now_ms * 2654435761u + pad;
-    s_heat[i] = clampf(s_heat[i] + 0.22f + 0.2f * v, 0.0f, 1.0f);
+    /* Heatmap: one hard hit reaches violet-magenta, a soft one stays blue. */
+    float heat = s_fx == TILES_FX_HEATMAP ? 0.1f + 0.45f * v : 0.22f + 0.2f * v;
+    s_heat[i] = clampf(s_heat[i] + heat, 0.0f, 1.0f);
     float c[3];
-    hsv(h->hue, 1.0f, 1.0f, c);
+    hsv(velocity_hue(v), 1.0f, 1.0f, c);
     for (int k = 0; k < 3; k++) {
         s_ink[i][k] += c[k] * v;
     }
@@ -264,12 +266,11 @@ static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
             return;
         }
         float w = expf(-(d - t * 8.0f) * (d - t * 8.0f) / (2.0f * 0.48f * 0.48f));
-        hsv(h->hue + d * 48.0f, 1.0f, 1.0f, c);
+        hsv(velocity_hue(h->v) + d * 30.0f, 1.0f, 1.0f, c);
         add_light(out, c, h->v * w * (1.0f - t / 1.1f));
         return;
     }
     case TILES_FX_FIREWORKS: {
-        static const float HUES[5] = {300.0f, 235.0f, 265.0f, 190.0f, 35.0f};
         for (uint32_t s = 0; s < 4u; s++) {
             int sr = row_of(h->pad) + (int)lroundf((rand01(h->seed + s * 7u) - 0.5f) * 4.0f);
             int sc = col_of(h->pad) + (int)lroundf((rand01(h->seed + s * 13u) - 0.5f) * 5.0f);
@@ -280,7 +281,7 @@ static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
             if (t < ta) {
                 continue;
             }
-            hsv(HUES[(int)(rand01(h->seed + s) * 4.99f)], 1.0f, 1.0f, c);
+            hsv(velocity_hue(h->v) + (rand01(h->seed + s) - 0.5f) * 90.0f, 1.0f, 1.0f, c);
             add_light(out, c, h->v * expf(-(t - ta) / 0.28f));
         }
         return;
@@ -293,7 +294,7 @@ static void hit_light(const fx_hit_t *h, uint8_t pad, float t, float out[3]) {
         float env = t < 0.06f ? t / 0.06f : expf(-(t - 0.06f) / 0.45f);
         float height = (float)(FX_ROWS - row_of(pad)); /* 1 = bottom row */
         float l = clampf(top * env - (height - 1.0f), 0.0f, 1.0f);
-        hsv(235.0f + (float)col_of(pad) / (float)(FX_COLS - 1) * 100.0f, 1.0f, 1.0f, c);
+        hsv(velocity_hue(h->v), 1.0f, 1.0f, c);
         add_light(out, c, l * (0.55f + 0.45f * h->v));
         return;
     }

@@ -10143,3 +10143,23 @@ change. Search it by file or feature name.
     settings_table.c); pattern bank and Song saves are marked pending and
     written once the clock is stopped and no pad is touched (op_mode.c).
     play_state and drums already skipped erases while the clock ran.
+- **Effect previews play the touched pad; colour effects follow velocity
+  (Alpha 2, 2026-10-23).** Asked: "make the lighting effect previews act
+  like the touched key is the pressed key. for color changing effects make
+  it biased by velocity not position so velocity alters hues; if that
+  dulls some of the effects then don't, but for most do it".
+  - Preview (expression_control.c): the scripted phrase across the grid is
+    gone; the touched pad itself is struck eight times a loop (1.8 s),
+    velocity 35 up to 127 and back, and shows the pressed look while each
+    note is down (white, or Touch colour's tint). The Off pad shows just
+    the pressed white.
+  - Hues (light_effects.c velocity_hue(): 205 deg soft, a cool blue, to
+    335 hard, a hot pink): Prism ripple starts there and still shifts as
+    it travels (30 deg a pad, was 48 from the note's pitch class); Rise's
+    bar (was by column); Ink (was the pitch class); Fireworks' sparks
+    scatter 90 deg around it (was a fixed five-colour set, random).
+    Heatmap keeps its heat colours, since a velocity hue would lose the
+    build-up, but a hit adds 0.1 + 0.45 x velocity of heat (was 0.22 +
+    0.2 x), so one hard hit reaches violet-magenta and a soft one stays
+    blue. Touch colour was already by velocity. tiles_fx_hit() lost its
+    pitch-class argument.

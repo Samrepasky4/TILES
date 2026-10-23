@@ -57,8 +57,9 @@
  * Each menu has its own colour: the Feel menu magenta, Light effects amber
  * (underglow and the Off pad), Layouts cyan (pads and underglow).
  * The current pick pulses white. A finger resting on a pad (no press)
- * previews it on the whole grid after ~0.3 s: Light effects plays a short
- * phrase through the effect, Layouts shows the layout's resting colours.
+ * previews it on the whole grid after ~0.3 s: Light effects plays the
+ * touched pad as if pressed, over and over, soft to hard and back; Layouts
+ * shows the layout's resting colours.
  * A press picks it and closes; lifting goes back, nothing changed; any
  * button closes without picking. Settings look.play_effect and
  * layout.melodic.

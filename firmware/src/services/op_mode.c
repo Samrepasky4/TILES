@@ -591,7 +591,7 @@ static void chord_pad_strike(uint8_t pad, uint8_t velocity) {
         tiles_cv_gate_note_on(s_chord_pad_notes[pad - 1u][i], velocity);
     }
     tiles_midi_out_batch_end();
-    tiles_fx_hit(pad, velocity, (uint8_t)(s_chord_pad_notes[pad - 1u][0] % 12u), to_ms_since_boot(get_absolute_time()));
+    tiles_fx_hit(pad, velocity, to_ms_since_boot(get_absolute_time()));
     tiles_haptics_trigger_kick(pad, velocity);
     s_chord_pad_sounding[pad - 1u] = true;
 }
