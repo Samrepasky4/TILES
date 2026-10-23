@@ -10119,3 +10119,12 @@ change. Search it by file or feature name.
   through tiles_lighting_set_standby_frame(): a whole frame, three pads a
   scan, biggest change first (the demo animates every pad; sent whole,
   each frame would hold the loop ~17 ms).
+- **Layouts preview on touch too; both previews wait 0.3 s (0.9.9,
+  2026-10-22).** Asked: "touch demos the playing melodic layout as well; it
+  puts it up if you touch but no press; give this and the preview for
+  lights a slight delay so we avoid accidental touches or distracting too
+  much". Both deeper menus now work alike: a finger resting on a pad
+  previews it after DEEP_PREVIEW_DELAY_MS (300, a first guess); Layouts
+  shows the layout's resting colours (switched in only while the frame is
+  read, tiles_lighting_melodic_rest_rgb()); a press picks and closes, a
+  lift goes back with nothing changed. Layouts no longer pick on a touch.

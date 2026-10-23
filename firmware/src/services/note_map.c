@@ -731,6 +731,10 @@ void tiles_note_map_set_layout_enabled(bool enabled) {
     s_layout_enabled = enabled;
 }
 
+bool tiles_note_map_get_layout_enabled(void) {
+    return s_layout_enabled;
+}
+
 static int8_t melodic_octave_shift(void) {
     return active_layout() == TILES_LAYOUT_FIFTHS ? (int8_t)(s_octave_shift - 1) : s_octave_shift;
 }

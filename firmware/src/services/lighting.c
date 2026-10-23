@@ -211,6 +211,24 @@ static uint32_t scheme_color_for_pad(uint8_t logical_pad) {
     return s_scheme[TILES_SCHEME_NOTE] != TILES_LIGHTING_COLOR_NONE ? s_scheme[TILES_SCHEME_NOTE] : 0x000000u;
 }
 
+void tiles_lighting_melodic_rest_rgb(uint8_t logical_pad, float rgb[3]) {
+    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    if (!tiles_note_map_pad_has_note(logical_pad)) {
+        return;
+    }
+    if (tiles_note_map_get_pad_cents(logical_pad) != 0u) {
+        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT) * 0.35f;
+        rgb[0] = 0.58f * level;
+        rgb[1] = 0.67f * level;
+        rgb[2] = 0.98f * level;
+        return;
+    }
+    uint32_t c = scheme_color_for_pad(logical_pad);
+    rgb[0] = (float)((c >> 16) & 0xFFu) / 255.0f;
+    rgb[1] = (float)((c >> 8) & 0xFFu) / 255.0f;
+    rgb[2] = (float)(c & 0xFFu) / 255.0f;
+}
+
 uint16_t tiles_lighting_get_look(tiles_look_param_t param) {
     return param < TILES_LOOK_COUNT ? s_look[param] : 0u;
 }

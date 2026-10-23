@@ -300,8 +300,13 @@ static void set_submenu_visible(bool visible) {
 
 /* Opens a deeper menu in the Feel menu's place (it keeps the grid). Held
  * buttons and fingers aren't read as new. */
+static bool s_preview_on;
+static uint8_t s_preview_pad;
+
 static void open_deep(deep_menu_t menu) {
     s_deep = menu;
+    s_preview_pad = 0u;
+    s_preview_on = false;
     s_submenu_sticky = false;
     s_submenu_visible = false;
     tiles_lighting_set_standby_active(true);
@@ -377,11 +382,15 @@ static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
     }
 }
 
-/* Light effects menu: a touch on an effect's pad demos it across the grid
- * while the finger rests (a short scripted phrase, looping); a press (Hall
- * past the strike depth) picks it and closes; lifting returns to the menu
- * with the effect in use unchanged. Layouts: a touch picks. */
+/* Both deeper menus: a finger resting on a pad (no press) previews it on
+ * the whole grid after DEEP_PREVIEW_DELAY_MS (a brush past a pad shows
+ * nothing): Light effects plays a short scripted phrase through the effect,
+ * looping; Layouts shows the layout's resting colours (roots, fifths,
+ * sharps, gaps, quarter tones). A press (Hall past the strike depth) picks
+ * it and closes; lifting goes back to the menu, nothing changed. A touch on
+ * another pad moves the preview there. */
 #define DEEP_PRESS_DEPTH TILES_EXPRESSION_MIN_STRIKE_DEPTH_DELTA
+#define DEEP_PREVIEW_DELAY_MS 300u /* first guess */
 #define DEEP_FRAME_WRITES 3u /* pads per scan (lighting.h: standby frame) */
 #define DEMO_LOOP_MS 1800u
 #define DEMO_NOTE_MS 160u
@@ -393,15 +402,28 @@ static const struct {
     {880u, 17u, 100u}, {1100u, 8u, 90u}, {1320u, 20u, 120u}, {1540u, 12u, 75u},
 };
 #define DEMO_HITS (sizeof(DEMO) / sizeof(DEMO[0]))
-static uint8_t s_demo_pad; /* the effect pad being touched, 0 = none */
-static tiles_fx_t s_demo_saved;
+/* s_preview_pad: the pad being touched (0 = none); s_preview_on: past the
+ * delay, showing (declared above, for open_deep()). */
+static uint32_t s_preview_touch_ms; /* when it was touched */
+static tiles_fx_t s_demo_saved;      /* the effect in use, back on lift */
 static uint32_t s_demo_start_ms;
-static uint32_t s_demo_last_ms; /* loop time already played up to */
+static uint32_t s_demo_last_ms;      /* loop time already played up to */
 
-static void demo_end(void) {
-    if (s_demo_pad != 0u) {
+static void preview_end(void) {
+    if (s_preview_on && s_deep == DEEP_EFFECTS) {
         tiles_fx_set(s_demo_saved);
-        s_demo_pad = 0u;
+    }
+    s_preview_pad = 0u;
+    s_preview_on = false;
+}
+
+static void preview_start(uint32_t now_ms) {
+    s_preview_on = true;
+    if (s_deep == DEEP_EFFECTS) {
+        s_demo_saved = tiles_fx_get();
+        s_demo_start_ms = now_ms;
+        s_demo_last_ms = DEMO_LOOP_MS - 1u; /* just before 0: the first hit plays now */
+        tiles_fx_set((tiles_fx_t)(s_preview_pad - 1u));
     }
 }
 
@@ -423,13 +445,39 @@ static void demo_run(uint32_t now_ms) {
     tiles_fx_step(now_ms);
 }
 
+/* The previewed layout's resting colours, read with it switched in for
+ * this call only (nothing else runs meanwhile). */
+static void layout_preview_frame(float frame[][3]) {
+    tiles_melodic_layout_t layout = tiles_note_map_get_layout();
+    bool enabled = tiles_note_map_get_layout_enabled();
+    tiles_note_map_set_layout_enabled(true);
+    tiles_note_map_set_layout((tiles_melodic_layout_t)(s_preview_pad - 1u));
+    for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
+        tiles_lighting_melodic_rest_rgb(pad, frame[pad - 1u]);
+    }
+    tiles_note_map_set_layout(layout);
+    tiles_note_map_set_layout_enabled(enabled);
+}
+
+static void deep_pick(uint8_t pad) {
+    if (s_deep == DEEP_EFFECTS) {
+        tiles_fx_set((tiles_fx_t)(pad - 1u));
+    } else {
+        tiles_note_map_set_layout((tiles_melodic_layout_t)(pad - 1u));
+    }
+    tiles_haptics_trigger_kick(pad, 100u);
+    s_preview_pad = 0u;
+    s_preview_on = false;
+    close_deep();
+}
+
 static void handle_deep_menu(uint32_t now_ms) {
     for (uint8_t b = 0; b < DEEP_NUM_BUTTONS; b++) {
         bool pressed = tiles_button_is_pressed((uint8_t)(b + 1u));
         bool fresh = pressed && !s_deep_prev_button[b];
         s_deep_prev_button[b] = pressed;
         if (fresh) {
-            demo_end();
+            preview_end();
             close_deep();
             return;
         }
@@ -438,46 +486,38 @@ static void handle_deep_menu(uint32_t now_ms) {
         bool touched = tiles_touch_is_touched(pad);
         bool fresh = touched && !s_deep_prev_touched[pad - 1u];
         s_deep_prev_touched[pad - 1u] = touched;
-        if (!fresh || !deep_slot_valid(pad)) {
-            continue;
-        }
-        if (s_deep == DEEP_LAYOUTS) {
-            tiles_note_map_set_layout((tiles_melodic_layout_t)(pad - 1u));
-            tiles_haptics_trigger_touch_pulse(pad);
-            close_deep();
-            return;
-        }
-        if (s_demo_pad == 0u) {
-            s_demo_saved = tiles_fx_get();
-            s_demo_pad = pad;
-            s_demo_start_ms = now_ms;
-            s_demo_last_ms = DEMO_LOOP_MS - 1u; /* just before 0: the first hit plays now */
-            tiles_fx_set((tiles_fx_t)(pad - 1u));
+        if (fresh && deep_slot_valid(pad) && pad != s_preview_pad) {
+            preview_end();
+            s_preview_pad = pad;
+            s_preview_touch_ms = now_ms;
             tiles_haptics_trigger_touch_pulse(pad);
         }
     }
     float frame[TILES_NUM_PADS][3];
-    if (s_demo_pad != 0u) {
-        if (tiles_hall_get_depth(s_demo_pad) >= DEEP_PRESS_DEPTH) {
-            /* Pressed: this effect it is. */
-            tiles_fx_set((tiles_fx_t)(s_demo_pad - 1u));
-            tiles_haptics_trigger_kick(s_demo_pad, 100u);
-            s_demo_pad = 0u;
-            close_deep();
+    if (s_preview_pad != 0u) {
+        if (tiles_hall_get_depth(s_preview_pad) >= DEEP_PRESS_DEPTH) {
+            deep_pick(s_preview_pad); /* pressed: this one */
             return;
         }
-        if (!tiles_touch_is_touched(s_demo_pad)) {
-            demo_end();
-        } else {
+        if (!tiles_touch_is_touched(s_preview_pad)) {
+            preview_end();
+        } else if (!s_preview_on && now_ms - s_preview_touch_ms >= DEEP_PREVIEW_DELAY_MS) {
+            preview_start(now_ms);
+        }
+    }
+    if (s_preview_on) {
+        if (s_deep == DEEP_EFFECTS) {
             demo_run(now_ms);
-            float pulse = submenu_selected_pulse_level(now_ms) * 0.5f;
             for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
                 tiles_fx_pad_light(pad, now_ms, frame[pad - 1u]);
             }
-            frame[s_demo_pad - 1u][0] = frame[s_demo_pad - 1u][1] = frame[s_demo_pad - 1u][2] = pulse;
-            tiles_lighting_set_standby_frame(frame, DEEP_FRAME_WRITES);
-            return;
+        } else {
+            layout_preview_frame(frame);
         }
+        float pulse = submenu_selected_pulse_level(now_ms) * 0.5f;
+        frame[s_preview_pad - 1u][0] = frame[s_preview_pad - 1u][1] = frame[s_preview_pad - 1u][2] = pulse;
+        tiles_lighting_set_standby_frame(frame, DEEP_FRAME_WRITES);
+        return;
     }
     float pulse = submenu_selected_pulse_level(now_ms);
     uint8_t selected = deep_selected_pad();

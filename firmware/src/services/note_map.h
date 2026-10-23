@@ -152,6 +152,7 @@ void tiles_note_map_set_layout(tiles_melodic_layout_t layout);
 tiles_melodic_layout_t tiles_note_map_get_layout(void);
 /* op_mode.c: true in melodic mode only; elsewhere the pads use Rows. */
 void tiles_note_map_set_layout_enabled(bool enabled);
+bool tiles_note_map_get_layout_enabled(void);
 /* False for a pad with no note (Keys' gaps): it plays nothing, stays dark. */
 bool tiles_note_map_pad_has_note(uint8_t logical_pad);
 /* The pad's offset above its note in cents (Quarter tones' odd pads: 50). */
