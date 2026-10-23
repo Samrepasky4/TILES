@@ -10269,3 +10269,8 @@ change. Search it by file or feature name.
     controller when its other pads are free.
   - main.c: all notes off after a crash restart, at start and on USB
     mount.
+- **Boot animation ~10% shorter (Alpha 5.1, 2026-10-23).** Asked: "shorten
+  the boot animation a bit very slightly" (Alpha 5 measured boot.ms 4819, of
+  which the sensors 26 ms). Every phase scaled by 0.9, so its shape is
+  unchanged: rain 1600 -> 1450 ms, fade 700 -> 630, pulse rise/hold/fall
+  700/500/1200 -> 630/450/1080; ~4.7 s -> ~4.2 s.

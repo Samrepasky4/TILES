@@ -164,7 +164,7 @@ int main(void) {
         printf("[hall] one or more pads failed sensor init -- see per-pad status\n");
     }
 
-    /* Boot animation (~4.7 s, ends with a Hall baseline recapture), skipped
+    /* Boot animation (~4.2 s, ends with a Hall baseline recapture), skipped
      * on a crash recovery: the sensors never lost power, so the baseline taken
      * at init is already valid. */
     if (crash_recovered) {
