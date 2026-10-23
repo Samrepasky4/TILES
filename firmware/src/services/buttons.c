@@ -2,6 +2,7 @@
 
 #include "board_pins.h"
 #include "pca9685.h"
+#include "power.h"
 
 #include "hardware/gpio.h"
 #include "pico/time.h"
@@ -82,6 +83,17 @@ static void write_led_full(uint8_t index, bool lit) {
     }
 }
 
+/* The button LEDs have no power ceiling of their own, and at full PWM they
+ * outshine the pads, which top out at the power mode's ceiling (50% on
+ * USB, 90% on 12 V; lighting.c). They follow the same ceiling, times
+ * BUTTON_LED_MATCH (a first guess: a small cap concentrates the light a
+ * pad spreads). */
+#define BUTTON_LED_MATCH 0.8f
+
+static float button_led_scale(void) {
+    return BUTTON_LED_MATCH * (float)tiles_power_get_state().led_brightness_ceiling_percent / 100.0f;
+}
+
 /* Smooth brightness via 12-bit PWM. With on_count=0, off_count is how long
  * the pin stays HIGH, and these LEDs are active low (high = dark), so
  * off_count = (1 - level) * 4095. Exact 0.0/1.0 use the full on/off bits,
@@ -97,6 +109,7 @@ static void write_led_level(uint8_t index, float level_0_to_1) {
     if (level_0_to_1 > 1.0f) {
         level_0_to_1 = 1.0f;
     }
+    level_0_to_1 *= button_led_scale();
 
     /* 256 steps: smooth to the eye, and a slow pulse changes the code (and
      * writes) far less often than every pass. */

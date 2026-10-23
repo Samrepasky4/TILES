@@ -10217,3 +10217,9 @@ change. Search it by file or feature name.
     capture runs keeps its old baseline but reports no depth until seen
     at rest. INFO hall.rezeros / hall.unconfirmed; a re-zero prints a line
     on the console.
+- **Button LEDs follow the pads' brightness ceiling (Alpha 4.2,
+  2026-10-23).** Asked: "the function buttons always feel a bit too
+  bright compared to regular pads, offset that". The pads top out at the
+  power mode's ceiling (50% USB, 90% 12 V); the button LEDs went to full
+  PWM. buttons.c write_led_level() now scales every level by that ceiling
+  times BUTTON_LED_MATCH (0.8, first guess), boot animation included.
