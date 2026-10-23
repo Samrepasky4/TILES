@@ -101,6 +101,8 @@ void tiles_drum_seq_flip_page(void);
  * shared clock). start: at the nearest beat, from step 1 if `restart`. */
 bool tiles_drum_seq_is_running(void);
 void tiles_drum_seq_start(bool restart);
+/* Phase lock (setting seq.lock via op_mode.h): drum_pattern.h's player. */
+void tiles_drum_seq_set_phase_lock(bool on);
 void tiles_drum_seq_pause(void);
 void tiles_drum_seq_rewind(void);
 

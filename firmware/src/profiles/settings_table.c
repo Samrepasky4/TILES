@@ -49,6 +49,8 @@ static void set_clock_lead(tiles_setting_value_t v) { tiles_midi_clock_set_lead_
 /* 0 = parts on their own USB port (midi/midi_ports.h), 1 = on the MIDI port. */
 static tiles_setting_value_t get_parts_port(void) { return U(tiles_midi_out_get_parts_separate() ? 0u : 1u); }
 static void set_parts_port(tiles_setting_value_t v) { tiles_midi_out_set_parts_separate(v.u == 0u); }
+static tiles_setting_value_t get_seq_lock(void) { return U(tiles_op_mode_get_phase_lock() ? 1u : 0u); }
+static void set_seq_lock(tiles_setting_value_t v) { tiles_op_mode_set_phase_lock(v.u != 0u); }
 /* ---- pedal ---- */
 static tiles_setting_value_t get_pedal_mode(void) { return U((uint32_t)tiles_pedal_get_mode()); }
 static void set_pedal_mode(tiles_setting_value_t v) { tiles_pedal_set_mode((tiles_pedal_mode_t)v.u); }
@@ -172,6 +174,7 @@ static const char *const PEDAL_POLARITY_NAMES[] = {"normally_open", "normally_cl
 static const char *const PEDAL_SUSTAIN_STYLE_NAMES[] = {"synth", "hold"};
 static const char *const DIN_TYPE_NAMES[] = {"a", "b"};
 static const char *const PARTS_PORT_NAMES[] = {"parts", "main"};
+static const char *const SEQ_LOCK_NAMES[] = {"off", "bar"};
 /* In light_effects.h order (the Light effects menu's pads 1-12). */
 static const char *const PLAY_EFFECT_NAMES[] = {"off",          "afterglow",    "ripple",  "cross",
                                                 "halo",         "warmth",       "prism_ripple", "touch_colour",
@@ -298,6 +301,10 @@ static const tiles_setting_def_t TABLE[] = {
     /* Melodic mode's layout (Feel menu, circle + triangle; note_map.h). */
     TILES_SETTING(0x0900, "layout.melodic", TILES_SETTING_ENUM, {.u = 0}, {.u = TILES_NUM_LAYOUTS - 1u}, LAYOUT_NAMES,
                   get_layout, set_layout),
+    /* Phase lock between sequencer lanes and the drums (op_mode.h); no
+     * hardware gesture. */
+    TILES_SETTING(0x0A00, "seq.lock", TILES_SETTING_ENUM, {.u = 0}, {.u = 1}, SEQ_LOCK_NAMES, get_seq_lock,
+                  set_seq_lock),
     TILES_SETTING(0x0705, "color.custom_pads", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_custom_pads,
                   set_custom_pads),
     PAD_COLOR_LIST(PAD_COLOR_ROW_COMMA)

@@ -307,6 +307,10 @@ void tiles_drum_seq_end_all_notes(void) {
 
 /* ---- transport and banks ---- */
 
+void tiles_drum_seq_set_phase_lock(bool on) {
+    s_player.phase_lock = on;
+}
+
 bool tiles_drum_seq_is_running(void) {
     return s_player.running;
 }
@@ -360,7 +364,7 @@ void tiles_drum_seq_advance(tiles_midi_clock_state_t clock, bool shown) {
         /* At the song position, so a DAW playing from mid-song lands right. */
         tiles_drum_player_start_at(&s_player, &s_pattern, &s_out, clock.pulse_count, clock.song_pulse);
     } else {
-        tiles_drum_player_advance(&s_player, &s_pattern, &s_out, clock.pulse_count, clock.running,
+        tiles_drum_player_advance(&s_player, &s_pattern, &s_out, clock.pulse_count, clock.song_pulse, clock.running,
                                   clock.start_edge);
     }
     if (s_player.step_started_pulse != started || s_player.step != step) {

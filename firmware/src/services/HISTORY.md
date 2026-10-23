@@ -10232,3 +10232,40 @@ change. Search it by file or feature name.
   ones. The PCA9685s still run their power-on ~200 Hz PWM (no prescale
   is set; the haptic motors share the chips), which every lit button now
   uses: raising it would change the motors' drive, untried.
+- **One shared clock, a sequencer phase lock, sensor upkeep (Alpha 5,
+  2026-10-23).** Asked: "do 2 and 3, 4 if it's actually important, do 5
+  but without interfering with playing, also make the reading time in boot
+  up faster, do 6 with enough of a buffer, do 7 ... also let's find a way
+  that makes sequencers sync up between each other ... a lock option
+  editable from software but not on hardware", then: "the clock is
+  resetting when playing drum mode and sequencer modes ... latch first to
+  midi if available, if not then internal clock, and make that internal
+  clock a single one dictated by the first playing sequence ... make it so
+  there's no retriggering".
+  - Clock (op_mode.c): "+" restarted the internal clock (a Start) in the
+    sequencer, drums and Bouncing notes even with other patterns playing,
+    so they all jumped back to step 1; "-" stopped it when no lane, drums
+    or Bouncing notes ran, ignoring Song tracks. Now the first pattern to
+    start starts it; the rest join on its beat (others_playing()); it stops
+    with the last (stop_clock_if_idle(), Song included). External clock
+    still rules when present.
+  - Phase lock, setting seq.lock off|bar (0x0A00, no hardware gesture,
+    set to bar on unit 2): a lane or the drums started while the clock runs
+    joins on the next step at the step it would be on had it played from
+    the song's top (song_pulse), and its steps keep following the song
+    position (a length or pattern change can't shift it). 16-step
+    patterns share the bar line; other lengths keep their place from the
+    top. drum_pattern.c player.phase_lock (tested), op_mode.c lanes.
+  - Hall (hall.c): one mux channel left open between reads, switching
+    closes the old one (was: all three closed before and after every
+    read, six writes); untouched pads read Z only (2 bytes, not 6); upkeep
+    while no pad is touched: retry dead sensors every 2 s, check one pad's
+    config every 250 ms (a sensor that lost power stops measuring but
+    answers). Boot: INFO boot.ms and boot.sensors_ms.
+  - Touch (touch.c, mpr121.c): each controller's ECR checked once a
+    second, set up again after a reset (judged worth it: a touch surface
+    is where static gets in, and a reset leaves 12 pads dead with no
+    error); a pad touched 3 minutes without a press re-zeroes its
+    controller when its other pads are free.
+  - main.c: all notes off after a crash restart, at start and on USB
+    mount.

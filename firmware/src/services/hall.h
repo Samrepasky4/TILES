@@ -1,8 +1,10 @@
 #pragma once
 
 /* Hall sensor scanning: reads the 24 TMAG5273s through their TCA9548A
- * channels (every selection disables all three muxes first, so only one
- * channel is ever open) into a per-pad X/Y/Z array.
+ * channels (one channel open at a time across the three muxes: a read
+ * switches from the last one) into a per-pad X/Y/Z array; a key at rest
+ * reads Z only. Sensors that fail, or reset and stop measuring, are set
+ * up again in the background while no pad is touched.
  *
  * Touched pads (services/touch.h) are read every call; untouched pads
  * round-robin one per call. Round-robin alone reaches a pad only every ~24
@@ -69,11 +71,16 @@ bool tiles_hall_recapture_baseline(void);
  * yet sampled, or its rest unconfirmed. */
 uint16_t tiles_hall_get_depth(uint8_t logical_pad);
 
-/* For INFO: re-zeros so far (all pads), and pads whose rest is unconfirmed
- * now. */
+/* For INFO: re-zeros so far (all pads), pads whose rest is unconfirmed
+ * now, sensors set up again since boot (one that reset or came back), pads
+ * whose sensor isn't answering now, and the time init and the boot
+ * recapture took. */
 typedef struct {
     uint32_t rezeros;
     uint8_t unconfirmed;
+    uint32_t reinits;
+    uint8_t dead;
+    uint32_t boot_ms;
 } tiles_hall_rest_info_t;
 tiles_hall_rest_info_t tiles_hall_get_rest_info(void);
 

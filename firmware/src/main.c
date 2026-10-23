@@ -243,6 +243,13 @@ int main(void) {
      * again, so a Clock arriving mid-pass is stepped on (and a USB transfer
      * that finished is followed by the next one) within a fraction of a
      * pass, not at the next one (tiles_op_mode_playback_tick()). */
+    /* After a crash restart, notes a host or a DIN synth was holding never get
+     * their Note-Off: all notes off now (DIN, and USB if it's back already)
+     * and again once USB mounts. */
+    bool panic_on_mount = crash_recovered;
+    if (crash_recovered) {
+        tiles_midi_send_panic();
+    }
     while (true) {
         tiles_loop_stats_mark(time_us_32());
         /* Must run every pass: it IS the USB stack (control transfers, CDC and
@@ -257,6 +264,10 @@ int main(void) {
         static bool s_mpe_was_mounted = false;
         bool mpe_mounted_now = tud_midi_mounted();
         if (mpe_mounted_now && !s_mpe_was_mounted) {
+            if (panic_on_mount) {
+                tiles_midi_send_panic();
+                panic_on_mount = false;
+            }
             tiles_expression_announce_mpe_zone();
         }
         s_mpe_was_mounted = mpe_mounted_now;

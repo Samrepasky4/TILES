@@ -931,6 +931,9 @@ static void seq_handle_step_taps(uint32_t now_ms) {
     }
 }
 
+/* Phase lock (op_mode.h, setting seq.lock). */
+static bool s_seq_lock;
+
 /* Takes the clock snapshot as a parameter: tiles_midi_clock_get_state()
  * clears start_edge, and scan also needs it for the beat flash. Called
  * once per lane with the same snapshot; all lanes share one tempo and
@@ -954,6 +957,20 @@ static void seq_advance_clock(uint8_t lane, tiles_midi_clock_state_t clock) {
          * keep its running flag, so it resumes with the tempo, like a slaved
          * hardware sequencer remembering which tracks were on. */
         seq_end_current_note(lane);
+        return;
+    }
+
+    if (s_seq_pending_start[lane] && s_seq_lock) {
+        /* Locked: on the next step boundary (or just past it), on the step it
+         * would be on had it played from the song's top. */
+        uint32_t phase = clock.song_pulse % OP_SEQ_CLOCKS_PER_STEP;
+        if (phase > 1u) {
+            return;
+        }
+        uint8_t length = pattern_for_lane(lane)->length;
+        s_seq_pending_start[lane] = false;
+        s_seq_step_started_at_pulse[lane] = clock.pulse_count - phase;
+        seq_enter_step(lane, (uint8_t)((clock.song_pulse / OP_SEQ_CLOCKS_PER_STEP) % (length < 1u ? 1u : length)));
         return;
     }
 
@@ -999,6 +1016,12 @@ static void seq_advance_clock(uint8_t lane, tiles_midi_clock_state_t clock) {
     s_seq_step_started_at_pulse[lane] += steps_to_advance * OP_SEQ_CLOCKS_PER_STEP;
     uint8_t length = pattern_for_lane(lane)->length;
     uint8_t new_step = (uint8_t)((s_seq_current_step[lane] + steps_to_advance) % length);
+    if (s_seq_lock) {
+        /* The song's step, so a length or pattern change can't shift it. */
+        uint32_t song_step =
+            (s_seq_step_started_at_pulse[lane] - (clock.pulse_count - clock.song_pulse)) / OP_SEQ_CLOCKS_PER_STEP;
+        new_step = (uint8_t)(song_step % length);
+    }
     seq_enter_step(lane, new_step);
 }
 
@@ -2936,6 +2959,29 @@ static bool any_song_slot_running(void) {
     return false;
 }
 
+/* One shared clock: MIDI clock when it's coming in, else the internal one.
+ * The first pattern to start starts the internal clock (beat 1, at once);
+ * any other joins it on its beat (or locked, on its song step: seq.lock)
+ * without restarting it, so nothing already playing is retriggered; the
+ * clock stops only with the last. True if anything but the starting
+ * pattern (sequencer `lane`, or -1; the drums; Bouncing notes) plays. */
+static bool others_playing(int lane, bool drums, bool bounce) {
+    for (uint8_t l = 0u; l < OP_SEQ_NUM_LANES; l++) {
+        if ((int)l != lane && s_seq_lane_running[l]) {
+            return true;
+        }
+    }
+    return (!drums && tiles_drum_seq_is_running()) || (!bounce && tiles_bounce_mode_is_running()) ||
+           any_song_slot_running();
+}
+
+/* After a stop: the internal clock stops once nothing plays on it. */
+static void stop_clock_if_idle(void) {
+    if (!any_lane_running() && !any_song_slot_running()) {
+        tiles_midi_clock_set_running(false);
+    }
+}
+
 /* "-"/"+": sequencer transport and length, bass guitar fret shift, and
  * Ableton track panning, in one handler with one set of press tracking
  * (the modes are exclusive). Sequencer rules: see the "Transport +
@@ -2999,10 +3045,7 @@ static void handle_transport_and_length(uint32_t now_ms) {
             if (s_seq_lane_running[lane]) {
                 s_seq_lane_running[lane] = false;
                 s_seq_pending_start[lane] = false;
-                /* The shared clock stops only once every lane has stopped. */
-                if (!any_lane_running()) {
-                    tiles_midi_clock_set_running(false);
-                }
+                stop_clock_if_idle();
             } else {
                 s_seq_current_step[lane] = 0u;
                 s_seq_note_sounding[lane] = false;
@@ -3013,9 +3056,7 @@ static void handle_transport_and_length(uint32_t now_ms) {
              * to its top. */
             if (tiles_bounce_mode_is_running()) {
                 tiles_bounce_mode_pause();
-                if (!any_lane_running()) {
-                    tiles_midi_clock_set_running(false);
-                }
+                stop_clock_if_idle();
             } else {
                 tiles_bounce_mode_rewind();
             }
@@ -3023,9 +3064,7 @@ static void handle_transport_and_length(uint32_t now_ms) {
             /* Drums: "-" pauses in place; "-" again rewinds (as the sequencer). */
             if (tiles_drum_seq_is_running()) {
                 tiles_drum_seq_pause();
-                if (!any_lane_running()) {
-                    tiles_midi_clock_set_running(false);
-                }
+                stop_clock_if_idle();
             } else {
                 tiles_drum_seq_rewind();
             }
@@ -3045,10 +3084,13 @@ static void handle_transport_and_length(uint32_t now_ms) {
         s_minus_used_as_combo = false;
     }
     if (!plus_held && s_plus_was_held) {
-        if (active && !s_plus_used_as_combo && !tiles_midi_clock_external_active(now_ms)) {
-            /* No clock coming in: play starts NOW as beat 1, not quantized. The
-             * internal clock restarts (a Start), so every running lane and the
-             * drums start over with it, in step. */
+        /* Nothing else playing and no clock coming in: this pattern starts the
+         * internal clock. Otherwise it joins the clock that runs. */
+        bool external = tiles_midi_clock_external_active(now_ms);
+        bool first = !external && !others_playing(active ? (int)s_seq_edit_lane : -1, drum_active, bounce_active);
+        if (active && !s_plus_used_as_combo && first) {
+            /* Play starts NOW as beat 1, not quantized: the internal clock
+             * restarts (a Start), with nothing else on it to retrigger. */
             uint8_t lane = s_seq_edit_lane;
             s_seq_lane_running[lane] = true;
             s_seq_pending_start[lane] = false;
@@ -3068,23 +3110,24 @@ static void handle_transport_and_length(uint32_t now_ms) {
                 s_seq_pending_start[lane] = true;
                 s_seq_pending_restart[lane] = false;
             }
-        } else if (bounce_active && !s_plus_used_as_combo && !tiles_midi_clock_external_active(now_ms)) {
-            /* No clock coming in: every ball lands now, the clock restarted with it. */
+        } else if (bounce_active && !s_plus_used_as_combo && first) {
+            /* Every ball lands now, the clock started with it. */
             tiles_bounce_mode_start(true);
             (void)tiles_midi_clock_restart();
         } else if (bounce_active && !s_plus_used_as_combo) {
-            /* Following an external clock: the balls drop on its next beat, on
-             * its grid (needs it running). */
+            /* Joining the running clock (external or another pattern's): the
+             * balls drop on its next beat, on its grid. */
             tiles_bounce_mode_start_on_beat();
             tiles_midi_clock_set_running(true);
-        } else if (drum_active && !s_plus_used_as_combo && !tiles_midi_clock_external_active(now_ms)) {
-            /* Drums, no clock coming in: step 1 now, the clock restarted with it
-             * (as in the sequencer). */
+        } else if (drum_active && !s_plus_used_as_combo && first) {
+            /* Drums first: step 1 now, the clock started with it (as in the
+             * sequencer). */
             tiles_drum_seq_start(true);
             (void)tiles_midi_clock_restart();
         } else if (drum_active && !s_plus_used_as_combo) {
-            /* Drums following an external clock: "+" while playing restarts from
-             * step 1 at the next beat; while stopped resumes at the nearest beat. */
+            /* Drums joining the running clock: "+" while playing restarts from
+             * step 1 at the next beat; while stopped resumes at the nearest beat
+             * (locked: both join on the song's step). */
             if (tiles_drum_seq_is_running()) {
                 tiles_drum_seq_start(true);
             } else if (tiles_midi_clock_tap_tempo_established() || tiles_midi_clock_external_active(now_ms)) {
@@ -3640,6 +3683,15 @@ bool tiles_op_mode_owns_octave_buttons(void) {
 
 bool tiles_op_mode_melodic_harmonics_may_play(void) {
     return s_active_mode == OP_MODE_MELODIC || s_active_mode == OP_MODE_CHORD;
+}
+
+void tiles_op_mode_set_phase_lock(bool on) {
+    s_seq_lock = on;
+    tiles_drum_seq_set_phase_lock(on);
+}
+
+bool tiles_op_mode_get_phase_lock(void) {
+    return s_seq_lock;
 }
 
 bool tiles_op_mode_is_sequencer_active(void) {

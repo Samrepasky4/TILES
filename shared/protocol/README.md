@@ -196,6 +196,7 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0807 | `modes.volca` | bool | | `1` | yes |
 | 0x0808 | `modes.bounce` | bool | | `1` | yes |
 | 0x0900 | `layout.melodic` | enum | `rows` (the default), `columns`, `fourths`, `keys`, `fifths`, `tonnetz`, `quarter_tones` (melodic mode's note layout; Feel menu, circle + triangle; firmware/src/services/note_map.h) | `rows` | yes |
+| 0x0A00 | `seq.lock` | enum | `off`, `bar`: a sequencer lane or the drums started while others play joins on the next step at the step it would be on had it played from the song's top, and stays there (16-step patterns share the bar line). No hardware gesture (firmware/src/services/op_mode.h) | `off` | yes |
 
 Ids `0x0401`-`0x0404` (`look.natural_pad_percent`, `look.root_pad_percent`,
 `look.fifth_pad_percent`, `look.fifth_red_tint_percent`) were retired in
@@ -344,7 +345,10 @@ last_result, pending, failures); the content store's
 `content.storage=ok|none|newer-format`, `content.scales=<n>/9`,
 `content.records`, `content.bytes=<used>/<capacity>`, `content.writes`,
 `content.last_result`; main-loop timing `loop.avg_us`, `loop.max_us` (last
-second) and `loop.max_ever_us`; drum mode's store `drums.storage`,
+second) and `loop.max_ever_us`; sensor health `hall.rezeros`,
+`hall.unconfirmed`, `hall.reinits`, `hall.dead`, `touch.recoveries`,
+`touch.reseeds`; boot timing `boot.ms` (power-on to the main loop) and
+`boot.sensors_ms`; drum mode's store `drums.storage`,
 `drums.saved_bytes`, `drums.saves`, `drums.pending`; the play state (mode,
 scale, key, octave kept across power cycles) `state.storage`,
 `state.saved=mode:<n> scale:<n> octave:<n> key:<n>` (once something is

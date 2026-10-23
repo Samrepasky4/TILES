@@ -135,6 +135,26 @@ Owned by `services/hall.c`:
   - Unconfirmed: no depth (the pad can't play or press) until a steady
     400 ms untouched sets the baseline.
   INFO reports `hall.rezeros` and `hall.unconfirmed`.
+
+## Sensor and controller upkeep
+
+- **Hall sensors** (`services/hall.c`), only while no pad is touched (a
+  retry costs about a millisecond): a pad whose reads fail 10 times in a
+  row is set aside; it, and any sensor that never set up, is retried one
+  every 2 s. One pad's config is checked every 250 ms (each pad every
+  ~6 s): a sensor that lost power answers but stays in standby, and is
+  configured again. INFO `hall.reinits`, `hall.dead`.
+- **Touch controllers** (`services/touch.c`): each checked once a second
+  (one register read); one that reset (static, a power glitch: it then
+  sits in Stop Mode reporting nothing) or never set up is set up again.
+  A pad touched 3 minutes without its key going down is a false touch
+  (moisture, a drifted baseline) that would keep the pad lit, TILES
+  awake and the pad's rest guard off: its controller re-takes its
+  baselines once none of its other pads is touched. INFO
+  `touch.recoveries`, `touch.reseeds`.
+- **After a crash restart** (`main.c`): all notes off on every port once
+  at start and again when USB mounts, since notes held then never get
+  their Note-Off.
 - **Why both gates:** each alone is foolable. A light resting finger may
   not register as touched, and slow drift and a very slow press look
   alike in variance alone. Untouched also implies no note is sounding

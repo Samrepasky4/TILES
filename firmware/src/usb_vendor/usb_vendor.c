@@ -14,6 +14,7 @@
 #include "product_identity.h"
 #include "settings.h"
 #include "settings_persist.h"
+#include "touch.h"
 
 #include "tusb.h"
 
@@ -512,6 +513,19 @@ static void handle_line(char *line) {
         snprintf(text, sizeof(text), "hall.rezeros=%lu", (unsigned long)rest.rezeros);
         reply(text);
         snprintf(text, sizeof(text), "hall.unconfirmed=%u", (unsigned)rest.unconfirmed);
+        reply(text);
+        snprintf(text, sizeof(text), "hall.reinits=%lu", (unsigned long)rest.reinits);
+        reply(text);
+        snprintf(text, sizeof(text), "hall.dead=%u", (unsigned)rest.dead);
+        reply(text);
+        tiles_touch_info_t touch = tiles_touch_get_info();
+        snprintf(text, sizeof(text), "touch.recoveries=%lu", (unsigned long)touch.recoveries);
+        reply(text);
+        snprintf(text, sizeof(text), "touch.reseeds=%lu", (unsigned long)touch.reseeds);
+        reply(text);
+        snprintf(text, sizeof(text), "boot.ms=%lu", (unsigned long)loop.boot_ms);
+        reply(text);
+        snprintf(text, sizeof(text), "boot.sensors_ms=%lu", (unsigned long)rest.boot_ms);
         reply(text);
         tiles_drum_seq_store_info_t drums = tiles_drum_seq_get_store_info();
         snprintf(text, sizeof(text), "drums.storage=%s", drums.storage ? "ok" : "none");

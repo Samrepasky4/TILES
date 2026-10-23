@@ -174,6 +174,14 @@ typedef enum {
     TILES_MENU_ENTRY_COUNT
 } tiles_op_mode_menu_entry_t;
 
+/* Phase lock (setting seq.lock, from software only; off by default): a
+ * sequencer lane or the drums started while others play joins on the next
+ * step, on the step it would be on had it played from the song's top, and
+ * stays there. 16-step patterns then share the bar line; other lengths
+ * keep their place from the top. */
+void tiles_op_mode_set_phase_lock(bool on);
+bool tiles_op_mode_get_phase_lock(void);
+
 /* Off: the pad goes dark and can't be picked; if that mode is in use, back
  * to melodic. */
 void tiles_op_mode_set_menu_entry_enabled(tiles_op_mode_menu_entry_t entry, bool enabled);
