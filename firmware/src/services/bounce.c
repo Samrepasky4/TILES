@@ -64,7 +64,7 @@ static uint32_t s_last_pulse_ms;
 static bool s_clock_running;
 
 /* Smooth drawing: the frame wanted, and what each pad was last sent. A pad
- * write is ~0.7 ms (services/lighting.c), so at most
+ * write is ~0.3 ms (services/lighting.c), so at most
  * BOUNCE_PAD_WRITES_PER_SCAN go out per scan, the biggest changes first:
  * a whole repaint at once would hold the main loop (and the clock's
  * playback ticks) for ~17 ms. Not drawn for BOUNCE_REPAINT_AFTER_MS (a menu

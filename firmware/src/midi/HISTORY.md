@@ -534,3 +534,12 @@ owner's feedback that prompted each change.
   - Setting midi.parts_port (0x0502): `parts` (default) or `main` (the old
     single port). macOS may need its cached device deleted in MIDI Studio
     before the new port shows (daw-integration/README.md).
+- **Builds are named Alpha N (2026-10-23).** Asked: "naming cant be 1.0
+  because thats release ready, lets move to another naming convention"
+  (0.9.9 was also the last number the BCD bcdDevice could hold). Picked:
+  Alpha 1, 2, ... while features change, then Beta 1, 2, ... once they
+  freeze, then 1.0. product_identity.h: TILES_FW_STAGE (alpha = 0, beta =
+  1) and TILES_FW_BUILD replace TILES_FW_VERSION_*. INFO reports
+  `firmware=alpha.1`; bcdDevice is 0xSNNN (stage digit, build in BCD); the
+  Identity Reply's software revision is stage, build high 7 bits, build
+  low 7 bits, 0. This build is Alpha 1.

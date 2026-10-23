@@ -1768,9 +1768,16 @@ static bool s_pattern_flash_is_delete; /* false = green (saved), true = red (del
 static uint32_t s_pattern_flash_start_ms;
 static uint8_t s_pattern_flash_pad; /* 1..24, the cell just saved/deleted */
 
+/* Flash writes wait for the clock to stop and the pads to be free
+ * (store_service()): an erase stalls everything, playback included, for
+ * tens of ms. The confirmation shows at once; RAM already holds the change. */
+static bool s_pattern_store_pending;
+static bool s_song_store_pending;
+static void song_store_write_all(void);
+
 static void pattern_store_save_slot(uint8_t lane, uint8_t alt) {
     s_pattern_slot_saved[lane][alt] = true;
-    pattern_store_write_all();
+    s_pattern_store_pending = true;
     printf("[op_mode] saved lane %u pattern %u to flash\n", (unsigned)lane, (unsigned)alt);
     s_pattern_flash_active = true;
     s_pattern_flash_is_delete = false;
@@ -1787,7 +1794,7 @@ static void pattern_store_clear_slot(uint8_t lane, uint8_t alt) {
         s_seq_pattern[lane][alt].step_ratchet_count[i] = 1u;
     }
     s_pattern_slot_saved[lane][alt] = false;
-    pattern_store_write_all();
+    s_pattern_store_pending = true;
     printf("[op_mode] cleared lane %u pattern %u\n", (unsigned)lane, (unsigned)alt);
     s_pattern_flash_active = true;
     s_pattern_flash_is_delete = true;
@@ -3490,6 +3497,17 @@ void tiles_op_mode_scan(void) {
     advance_playback(step_clock);
     /* Right after the advance: it saves just after a step starts. */
     tiles_drum_seq_persist_service(now_ms, clock.running);
+    /* Pattern bank and Song saves, once the clock stops. */
+    if (!clock.running && !any_pad_touched()) {
+        if (s_pattern_store_pending) {
+            s_pattern_store_pending = false;
+            pattern_store_write_all();
+        }
+        if (s_song_store_pending) {
+            s_song_store_pending = false;
+            song_store_write_all();
+        }
+    }
 
     if (s_menu_visible) {
         handle_menu_taps();
@@ -3956,7 +3974,7 @@ static void song_place(uint8_t from_pad, uint8_t to_pad) {
     memcpy(s_song_sounding_notes[from], tmp_notes, sizeof(tmp_notes));
     s_song_sounding_note_count[from] = tmp_note_count;
 
-    song_store_write_all();
+    s_song_store_pending = true;
     song_flash_confirm(to_pad, tmp_occupied ? from_pad : 0u, false);
     s_song_picked_up_slot = 0u;
 }
@@ -3974,7 +3992,7 @@ static void song_delete_slot(uint8_t pad) {
     }
     memset(&s_song_pattern[slot], 0, sizeof(s_song_pattern[slot]));
     s_song_slot_occupied[slot] = false;
-    song_store_write_all();
+    s_song_store_pending = true;
     song_flash_confirm(pad, 0u, true);
 }
 
@@ -4269,7 +4287,7 @@ static void song_edit_exit(void) {
         song_edit_pick_cancel();
     }
     if (s_song_edit_dirty) {
-        song_store_write_all();
+        s_song_store_pending = true;
         s_song_edit_dirty = false;
     }
     s_song_edit_active = false;
@@ -4673,7 +4691,7 @@ static void song_capture_exit(void) {
         tiles_lighting_set_standby_active(false);
         tiles_buttons_set_standby_active(false);
     }
-    song_store_write_all();
+    s_song_store_pending = true;
     printf("[op_mode] song capture -> off\n");
 }
 

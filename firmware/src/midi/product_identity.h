@@ -20,10 +20,16 @@
  *
  * BOOTSEL (ROM bootloader) always enumerates as Raspberry Pi 0x2E8A:0x000F.
  *
- * ---- Firmware version -----------------------------------------------------
- * Reported as USB bcdDevice (TILES_USB_BCD_DEVICE) and in the MIDI Identity
- * Reply (midi/identity.c). Bump for every build that leaves a developer's
- * desk; each part must stay 0-9 for the BCD encoding.
+ * ---- Firmware version: Alpha N -------------------------------------------
+ * Pre-release builds are numbered by stage: Alpha 1, 2, ... while features
+ * still change, Beta 1, 2, ... once they freeze (the count restarts), and
+ * 1.0 is the release. Bump TILES_FW_BUILD for every build that leaves a
+ * developer's desk. Reported as:
+ *   INFO              firmware=alpha.N (usb_vendor.c)
+ *   USB bcdDevice     0xSNNN: the stage digit, then N in BCD (0-999)
+ *   Identity Reply    software revision bytes: stage, N high 7 bits, N low
+ *                     7 bits, 0 (midi/identity.c)
+ * (Until 2026-10-23 builds were 0.2.0 .. 0.9.9.)
  *
  * ---- MIDI SysEx manufacturer ID -------------------------------------------
  * 0x7D: the MIDI Association's ID for non-commercial/development use, the
@@ -42,12 +48,16 @@
 #define TILES_USB_VID 0x1209u
 #define TILES_USB_PID 0x0001u
 
-#define TILES_FW_VERSION_MAJOR 0u
-#define TILES_FW_VERSION_MINOR 9u
-#define TILES_FW_VERSION_PATCH 9u
+#define TILES_FW_STAGE_ALPHA 0u
+#define TILES_FW_STAGE_BETA 1u
+#define TILES_FW_STAGE TILES_FW_STAGE_ALPHA
+#define TILES_FW_STAGE_NAME "alpha" /* matches TILES_FW_STAGE */
+#define TILES_FW_BUILD 1u
 
-/* 0xJJMN, binary-coded decimal: major.minor.patch. */
-#define TILES_USB_BCD_DEVICE \
-    ((uint16_t)((TILES_FW_VERSION_MAJOR << 8) | (TILES_FW_VERSION_MINOR << 4) | TILES_FW_VERSION_PATCH))
+#define TILES_USB_BCD_DEVICE                                       \
+    ((uint16_t)((TILES_FW_STAGE << 12) |                           \
+                (((TILES_FW_BUILD / 100u) % 10u) << 8) |           \
+                (((TILES_FW_BUILD / 10u) % 10u) << 4) |            \
+                (TILES_FW_BUILD % 10u)))
 
 #define TILES_SYSEX_MANUFACTURER_ID 0x7Du

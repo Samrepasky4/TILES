@@ -305,7 +305,13 @@ static const tiles_setting_def_t TABLE[] = {
 #define TABLE_COUNT (sizeof(TABLE) / sizeof(TABLE[0]))
 
 /* "Hands off the pads": a flash erase stalls the firmware for tens of ms. */
+/* Settings save (an erase: tens of ms of everything stalled) with the pads
+ * idle and the clock stopped, so playing never hiccups; a change made
+ * mid-song lands once it stops. */
 static bool pads_idle(void) {
+    if (tiles_midi_clock_is_running()) {
+        return false;
+    }
     for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
         if (tiles_touch_is_touched(pad)) {
             return false;

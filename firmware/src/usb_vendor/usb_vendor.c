@@ -447,8 +447,7 @@ static void handle_line(char *line) {
         tiles_settings_persist_info_t info = tiles_settings_persist_get_info();
         snprintf(text, sizeof(text), "unit=%u/%u", (unsigned)TILES_UNIT_NUMBER, (unsigned)TILES_UNIT_COUNT);
         reply(text);
-        snprintf(text, sizeof(text), "firmware=%u.%u.%u", (unsigned)TILES_FW_VERSION_MAJOR,
-                 (unsigned)TILES_FW_VERSION_MINOR, (unsigned)TILES_FW_VERSION_PATCH);
+        snprintf(text, sizeof(text), "firmware=%s.%u", TILES_FW_STAGE_NAME, (unsigned)TILES_FW_BUILD);
         reply(text);
         snprintf(text, sizeof(text), "settings=%u", (unsigned)tiles_settings_count());
         reply(text);

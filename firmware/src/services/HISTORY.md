@@ -10128,3 +10128,18 @@ change. Search it by file or feature name.
   shows the layout's resting colours (switched in only while the frame is
   read, tiles_lighting_melodic_rest_rgb()); a press picks and closes, a
   lift goes back with nothing changed. Layouts no longer pick on a touch.
+- **Faster pad writes, paced standby, no flash saves while playing (Alpha 1,
+  2026-10-23).** Asked for optimization ideas, then "do 1, 2, 3".
+  - LED latch 300 -> 120 us (drivers/sk6805.h): 300 was the WS2812B-V5's
+    rule; the SK6805-EC15 needs 80 (board map led_systems, updated). One
+    mux write selects the channel and enables it
+    (tiles_tca9554_select_and_enable(), was disable, select, enable), so a
+    pad write is ~0.3 ms instead of ~0.7 (unmeasured).
+  - Standby and the deeper menus: tiles_lighting_set_standby_frame() and
+    the standby animation only store colours; service_standby_frame()
+    sends 3 pads a pass, largest change first (as the menus already did),
+    so a full repaint no longer holds one scan.
+  - Flash: settings saves also wait for the clock to stop (pads_idle() in
+    settings_table.c); pattern bank and Song saves are marked pending and
+    written once the clock is stopped and no pad is touched (op_mode.c).
+    play_state and drums already skipped erases while the clock ran.

@@ -96,8 +96,7 @@
  *     dark.
  * Pads showing either are rewritten every PAD_LIVE_REFRESH_MS. They take
  * the pass's one pad write from the round-robin, which waits: a pad write
- * is ~0.7 ms (four mux writes on I2C plus the 300 us latch), and a second
- * one per pass added ~1 ms to the loop while playing. All first guesses:
+ * is ~0.3 ms (two mux writes on I2C plus the 120 us latch; unmeasured). All first guesses:
  * "slight, but visible". The amounts are settings
  * (look.pressure_hue_degrees, look.bend_dim_percent); 0 turns either off. */
 #define TILES_LIGHTING_PRESSURE_HUE_DEGREES 40u
@@ -308,6 +307,14 @@ static tiles_sk6805_chain_t s_pad_chain;
 static tiles_tca9554_t s_led_mux;
 static float s_pad_press[TILES_NUM_PADS]; /* touch-driven, white, floored at the idle level */
 static tiles_rgb01_t s_pad_standby_rgb[TILES_NUM_PADS]; /* standby color, no floor */
+/* What each pad last showed of it (valid = written since standby began):
+ * standby colours go out STANDBY_WRITES_PER_PASS pads a pass, biggest
+ * change first, so no screen change (a menu opening, a game frame, the
+ * screensaver) sends 24 pads at once and holds the loop (and the
+ * playback ticks) ~7 ms. */
+static tiles_rgb01_t s_standby_written[TILES_NUM_PADS];
+static bool s_standby_written_valid[TILES_NUM_PADS];
+#define STANDBY_WRITES_PER_PASS 3u
 static tiles_rgb01_t s_underglow_rgb[TILES_LIGHTING_NUM_UNDERGLOW_PIXELS];
 /* The underglow outside standby: the active mode's colour (white until set). */
 static tiles_rgb01_t s_mode_underglow = {1.0f, 1.0f, 1.0f};
@@ -329,7 +336,7 @@ static uint8_t s_live_cursor;
 /* The playing light effect (light_effects.h) as each pad was last written,
  * so a pass sends the pads whose effect changed most. */
 static float s_play_fx_written[TILES_NUM_PADS][3];
-#define PLAY_FX_WRITES_PER_PASS 2u /* a pad write is ~0.7 ms */
+#define PLAY_FX_WRITES_PER_PASS 2u /* a pad write is ~0.3 ms */
 #define PLAY_FX_CHANGE_MIN 0.02f
 
 static float clamp01(float v) {
@@ -612,6 +619,33 @@ static tiles_rgb01_t pad_desired_rgb(uint8_t pad_index) {
 
 static void write_pad(uint8_t pad_index);
 
+/* Under standby: up to STANDBY_WRITES_PER_PASS pads whose standby colour
+ * differs most from what they show (one never written since standby began
+ * goes first). True if it wrote any. */
+static bool service_standby_frame(void) {
+    bool any = false;
+    for (uint8_t n = 0; n < STANDBY_WRITES_PER_PASS; n++) {
+        uint8_t best = TILES_NUM_PADS;
+        float best_change = 0.004f;
+        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+            const tiles_rgb01_t *want = &s_pad_standby_rgb[i], *shown = &s_standby_written[i];
+            float change = !s_standby_written_valid[i]
+                               ? 2.0f
+                               : fmaxf(fabsf(want->r - shown->r), fmaxf(fabsf(want->g - shown->g), fabsf(want->b - shown->b)));
+            if (change > best_change) {
+                best_change = change;
+                best = i;
+            }
+        }
+        if (best == TILES_NUM_PADS) {
+            break;
+        }
+        write_pad(best);
+        any = true;
+    }
+    return any;
+}
+
 /* While a light effect animates: up to PLAY_FX_WRITES_PER_PASS pads whose
  * effect changed most since written. True if it wrote any (the pass's
  * usual write then waits). */
@@ -662,6 +696,10 @@ static void write_pad(uint8_t pad_index /* 0-23 */) {
 
     s_pad_fx_shown[pad_index] = pad_fx_active(pad_index);
     s_pad_written_ms[pad_index] = to_ms_since_boot(get_absolute_time());
+    if (s_standby_active) {
+        s_standby_written[pad_index] = s_pad_standby_rgb[pad_index];
+        s_standby_written_valid[pad_index] = true;
+    }
     uint32_t pixel;
     if (s_test_white_level != 0u) {
         pixel = tiles_sk6805_pack_rgb(s_test_white_level, s_test_white_level, s_test_white_level);
@@ -678,9 +716,9 @@ static void write_pad(uint8_t pad_index /* 0-23 */) {
      * write) so a report shows which blocking step a hang was in. Both steps
      * are timeout-bounded. */
     tiles_debug_trace('i');
-    tiles_tca9554_disable_all_muxes(&s_led_mux);
-    tiles_tca9554_set_select(&s_led_mux, cfg->led.mux_channel);
-    tiles_tca9554_enable_mux(&s_led_mux, cfg->led.mux_index);
+    /* Select + enable in one I2C write (the bank is already disabled after
+     * the last pixel); two writes a pixel instead of four. */
+    tiles_tca9554_select_and_enable(&s_led_mux, cfg->led.mux_channel, cfg->led.mux_index);
     tiles_debug_trace('w');
     tiles_sk6805_write(&s_pad_chain, &pixel, 1);
     /* 'x' = tiles_sk6805_write() returned (it once hung inside despite its
@@ -987,8 +1025,9 @@ void tiles_lighting_service(void) {
             return;
         }
     }
-    /* Then the playing light effect, before the round-robin. */
-    if (service_play_fx(now_ms)) {
+    /* Then a standby screen's changes, or the playing light effect, before
+     * the round-robin. */
+    if (s_standby_active ? service_standby_frame() : service_play_fx(now_ms)) {
         return;
     }
     write_pad(s_service_cursor);
@@ -1009,6 +1048,11 @@ void tiles_lighting_set_mode_underglow(float r, float g, float b) {
 }
 
 void tiles_lighting_set_standby_active(bool active) {
+    if (active && !s_standby_active) {
+        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+            s_standby_written_valid[i] = false; /* the pads show the normal look */
+        }
+    }
     s_standby_active = active;
 
     if (!active) {
@@ -1024,22 +1068,9 @@ void tiles_lighting_set_standby_active(bool active) {
 }
 
 void tiles_lighting_set_standby_frame(const float rgb[][3], uint8_t max_writes) {
-    for (uint8_t n = 0; n < max_writes; n++) {
-        uint8_t best = TILES_NUM_PADS;
-        float best_change = 0.01f;
-        for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
-            const tiles_rgb01_t *shown = &s_pad_standby_rgb[i];
-            float change = fmaxf(fabsf(clamp01(rgb[i][0]) - shown->r),
-                                 fmaxf(fabsf(clamp01(rgb[i][1]) - shown->g), fabsf(clamp01(rgb[i][2]) - shown->b)));
-            if (change >= best_change) {
-                best_change = change;
-                best = i;
-            }
-        }
-        if (best == TILES_NUM_PADS) {
-            return;
-        }
-        tiles_lighting_set_standby_pad_rgb((uint8_t)(best + 1u), rgb[best][0], rgb[best][1], rgb[best][2]);
+    (void)max_writes; /* service_standby_frame() paces every standby write */
+    for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
+        tiles_lighting_set_standby_pad_rgb((uint8_t)(i + 1u), rgb[i][0], rgb[i][1], rgb[i][2]);
     }
 }
 
@@ -1053,12 +1084,7 @@ void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, f
     if (stored->r == c.r && stored->g == c.g && stored->b == c.b) {
         return;
     }
-    *stored = c;
-
-    /* Immediate write, as in set_pad_press_internal(). */
-    if (s_initialized) {
-        write_pad(pad_index);
-    }
+    *stored = c; /* tiles_lighting_service() sends it (service_standby_frame()) */
 }
 
 void tiles_lighting_set_standby_underglow_rgb(uint8_t pixel_index, float r, float g, float b) {
