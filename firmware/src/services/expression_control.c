@@ -386,7 +386,7 @@ static void deep_slot_rgb(uint8_t pad, float rgb[3]) {
  * the whole grid after DEEP_PREVIEW_DELAY_MS (a brush past a pad shows
  * nothing): Light effects plays the touched pad as if it were pressed,
  * repeatedly, soft to hard and back (the colour effects' hues follow
- * velocity); Layouts shows the layout's resting colours (roots, fifths,
+ * velocity), over the melodic look dimmed as in play; Layouts shows the layout's resting colours (roots, fifths,
  * sharps, gaps, quarter tones). A press (Hall past the strike depth) picks
  * it and closes; lifting goes back to the menu, nothing changed. A touch on
  * another pad moves the preview there. */
@@ -509,8 +509,15 @@ static void handle_deep_menu(uint32_t now_ms) {
         float *touched = frame[s_preview_pad - 1u];
         if (s_deep == DEEP_EFFECTS) {
             bool down = demo_run(now_ms);
+            /* Over the melodic look, dimmed as in play (full for Off). */
+            float rest = tiles_fx_get() == TILES_FX_OFF ? 1.0f : TILES_LIGHTING_FX_REST_LEVEL;
             for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
-                tiles_fx_pad_light(pad, now_ms, frame[pad - 1u]);
+                float *out = frame[pad - 1u], fx[3];
+                tiles_lighting_melodic_rest_rgb(pad, out);
+                tiles_fx_pad_light(pad, now_ms, fx);
+                for (uint8_t c = 0; c < 3u; c++) {
+                    out[c] = 1.0f - (1.0f - out[c] * rest) * (1.0f - fx[c]);
+                }
             }
             /* Pressed, as in play: white, or Touch colour's tint. */
             if (down && !tiles_fx_pressed_colour(s_preview_pad, touched)) {

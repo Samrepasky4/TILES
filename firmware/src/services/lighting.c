@@ -481,6 +481,52 @@ static tiles_rgb01_t apply_pad_fx(uint8_t pad_index, tiles_rgb01_t c) {
     return c;
 }
 
+/* A pad's resting look (no touch, echo or capture): bass frets, the chord
+ * strip, layout gaps and quarter tones, custom colours, the scheme. */
+static tiles_rgb01_t pad_idle_rgb(uint8_t logical_pad) {
+    /* Bass guitar mode: neck-style coloring in the mode's green (op_mode.c's
+     * menu). Unmarked frets at the idle level; inlay frets brighter; octave
+     * (double-dot) frets brightest. */
+    if (tiles_note_map_is_guitar_mode_active()) {
+        bool is_octave = false;
+        if (tiles_note_map_is_guitar_fret_marker_pad(logical_pad, &is_octave)) {
+            float level = is_octave ? 1.0f : 0.75f;
+            return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
+        }
+        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT);
+        return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
+    }
+
+    /* Chord mode's chord strip: one solid blue for the whole region. The
+     * melody grid needs no branch (the root/natural checks are chord-aware). */
+    if (tiles_note_map_is_chord_region_pad(logical_pad)) {
+        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT);
+        return (tiles_rgb01_t){0.0f, 0.0f, level};
+    }
+
+    /* Layouts (note_map.h): a pad with no note (Keys' gaps) is dark; a
+     * quarter tone a dim Sentia blue, apart from the semitones. */
+    if (!tiles_note_map_pad_has_note(logical_pad)) {
+        return (tiles_rgb01_t){0.0f, 0.0f, 0.0f};
+    }
+    if (tiles_note_map_get_pad_cents(logical_pad) != 0u) {
+        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT) * 0.35f;
+        return (tiles_rgb01_t){0.58f * level, 0.67f * level, 0.98f * level};
+    }
+
+    /* Custom pad colours (advanced), melodic mode only: the map is drawn for
+     * melodic mode's layout, so chord mode's melody grid keeps the scheme. */
+    if (s_custom_pads_enabled && !tiles_note_map_is_chord_mode_active()) {
+        uint32_t own = tiles_lighting_get_pad_color(logical_pad);
+        if (own != TILES_LIGHTING_COLOR_NONE) {
+            return rgb01_from_color(own);
+        }
+    }
+
+    /* Idle melodic colouring by note role: the colour scheme. */
+    return rgb01_from_color(scheme_color_for_pad(logical_pad));
+}
+
 /* What a pad's r/g/b wants (0.0-1.0) in every state, before the ceiling
  * (applied in write_pad()) and the pressure hue / bend dimming
  * (apply_pad_fx()). The single source of truth for a pad's look. */
@@ -536,47 +582,15 @@ static tiles_rgb01_t pad_look_rgb(uint8_t pad_index) {
         return (tiles_rgb01_t){mix, 1.0f, mix};
     }
 
-    /* Bass guitar mode: neck-style coloring in the mode's green (op_mode.c's
-     * menu). Unmarked frets at the idle level; inlay frets brighter; octave
-     * (double-dot) frets brightest. */
-    if (tiles_note_map_is_guitar_mode_active()) {
-        bool is_octave = false;
-        if (tiles_note_map_is_guitar_fret_marker_pad(logical_pad, &is_octave)) {
-            float level = is_octave ? 1.0f : 0.75f;
-            return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
-        }
-        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT);
-        return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
+    /* Under a light effect the resting look dims, so the effect's light
+     * has room above it. */
+    tiles_rgb01_t idle = pad_idle_rgb(logical_pad);
+    if (tiles_fx_get() != TILES_FX_OFF) {
+        idle.r *= TILES_LIGHTING_FX_REST_LEVEL;
+        idle.g *= TILES_LIGHTING_FX_REST_LEVEL;
+        idle.b *= TILES_LIGHTING_FX_REST_LEVEL;
     }
-
-    /* Chord mode's chord strip: one solid blue for the whole region. The
-     * melody grid needs no branch (the root/natural checks are chord-aware). */
-    if (tiles_note_map_is_chord_region_pad(logical_pad)) {
-        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT);
-        return (tiles_rgb01_t){0.0f, 0.0f, level};
-    }
-
-    /* Layouts (note_map.h): a pad with no note (Keys' gaps) is dark; a
-     * quarter tone a dim Sentia blue, apart from the semitones. */
-    if (!tiles_note_map_pad_has_note(logical_pad)) {
-        return (tiles_rgb01_t){0.0f, 0.0f, 0.0f};
-    }
-    if (tiles_note_map_get_pad_cents(logical_pad) != 0u) {
-        float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT) * 0.35f;
-        return (tiles_rgb01_t){0.58f * level, 0.67f * level, 0.98f * level};
-    }
-
-    /* Custom pad colours (advanced), melodic mode only: the map is drawn for
-     * melodic mode's layout, so chord mode's melody grid keeps the scheme. */
-    if (s_custom_pads_enabled && !tiles_note_map_is_chord_mode_active()) {
-        uint32_t own = tiles_lighting_get_pad_color(logical_pad);
-        if (own != TILES_LIGHTING_COLOR_NONE) {
-            return rgb01_from_color(own);
-        }
-    }
-
-    /* Idle melodic colouring by note role: the colour scheme. */
-    return rgb01_from_color(scheme_color_for_pad(logical_pad));
+    return idle;
 }
 
 /* The effect's light on a pad now: none under standby (menus and the modes

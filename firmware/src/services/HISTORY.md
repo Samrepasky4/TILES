@@ -10163,3 +10163,12 @@ change. Search it by file or feature name.
     0.2 x), so one hard hit reaches violet-magenta and a soft one stays
     blue. Touch colour was already by velocity. tiles_fx_hit() lost its
     pitch-class argument.
+- **Resting pads dim under a light effect (Alpha 3, 2026-10-23).** Asked:
+  "these effects should dim unactive pads so theres more dynamic range in
+  the lights". With any effect picked, the pads' resting look (scheme
+  colours, bass frets, the chord strip; pad_idle_rgb(), split out of
+  pad_look_rgb()) drops to TILES_LIGHTING_FX_REST_LEVEL (0.3, a first
+  guess; PWM is linear, so it reads brighter than 30%). Held pads, DAW
+  echo notes and Song capture flashes stay full; Off keeps the full look.
+  The Light effects preview now draws over the melodic look dimmed the
+  same way (full while resting on Off), so it shows what play will.

@@ -113,6 +113,10 @@ void tiles_lighting_set_standby_pad_rgb(uint8_t logical_pad, float r, float g, f
  * preview. */
 void tiles_lighting_melodic_rest_rgb(uint8_t logical_pad, float rgb[3]);
 
+/* Under a light effect the pads' resting look dims to this, for more range
+ * between it and the effect's light (first guess). */
+#define TILES_LIGHTING_FX_REST_LEVEL 0.3f
+
 /* A whole standby frame (index 0 = pad 1), drawn a few pads at a time: the
  * `max_writes` pads that differ most from what they show. A pad write is
  * ~0.3 ms, so an animated frame sent whole would hold the main loop. */

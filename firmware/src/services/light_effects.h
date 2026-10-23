@@ -4,8 +4,9 @@
  * around it, the way a backlit mechanical keyboard answers each keystroke.
  * Picked in the Light effects menu (expression_control.h: Feel menu, then
  * circle + square), setting look.play_effect. Pure, no hardware:
- * services/lighting.c draws it over the pads' normal look (the modes it
- * lights itself, not the ones that draw the whole grid), expression.c and
+ * services/lighting.c draws it over the pads' normal look, dimmed to
+ * TILES_LIGHTING_FX_REST_LEVEL (the modes it lights itself, not the ones
+ * that draw the whole grid), expression.c and
  * op_mode.c report the notes. Host-tested in test/test_light_effects.c.
  *
  * Pads are logical 1-24 (1 = top-left, row-major), as everywhere. */
