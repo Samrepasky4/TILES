@@ -32,7 +32,3 @@ uint16_t tiles_mpr121_read_touched(tiles_mpr121_t *dev, bool *ok);
  * reports nothing touched while still answering; false then, or on a
  * failed read. */
 bool tiles_mpr121_running(tiles_mpr121_t *dev);
-
-/* Stop, then Run again: every electrode's baseline is taken afresh from
- * its next reading (whatever touches it now becomes "untouched"). */
-bool tiles_mpr121_reseed(tiles_mpr121_t *dev);

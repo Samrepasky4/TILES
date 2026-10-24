@@ -180,6 +180,16 @@ typedef enum {
  * stays there. 16-step patterns then share the bar line; other lengths
  * keep their place from the top. */
 void tiles_op_mode_set_phase_lock(bool on);
+
+/* The sequencer's autosave, for INFO (seq.*). */
+typedef struct {
+    bool storage;   /* its flash region is usable */
+    bool pending;   /* a change not saved yet */
+    bool truncated; /* the last save didn't fit every pattern */
+    uint16_t saved_bytes;
+    uint32_t saves;
+} tiles_op_mode_seq_store_info_t;
+tiles_op_mode_seq_store_info_t tiles_op_mode_get_seq_store_info(void);
 bool tiles_op_mode_get_phase_lock(void);
 
 /* Off: the pad goes dark and can't be picked; if that mode is in use, back

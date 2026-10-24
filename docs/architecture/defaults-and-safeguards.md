@@ -145,13 +145,13 @@ Owned by `services/hall.c`:
   ~6 s): a sensor that lost power answers but stays in standby, and is
   configured again. INFO `hall.reinits`, `hall.dead`.
 - **Touch controllers** (`services/touch.c`): each checked once a second
-  (one register read); one that reset (static, a power glitch: it then
-  sits in Stop Mode reporting nothing) or never set up is set up again.
-  A pad touched 3 minutes without its key going down is a false touch
-  (moisture, a drifted baseline) that would keep the pad lit, TILES
-  awake and the pad's rest guard off: its controller re-takes its
-  baselines once none of its other pads is touched. INFO
-  `touch.recoveries`, `touch.reseeds`.
+  (one register read); one that fails two checks in a row (reset by
+  static or a power glitch, it sits in Stop Mode reporting nothing; or
+  never set up) is set up again. INFO `touch.recoveries`. Not done: re-
+  taking a controller's baselines when a pad reads touched for minutes
+  with no press (Alpha 5): it fired 28 times in normal playing on unit 2
+  and left pads less sensitive (a baseline taken under a hovering hand),
+  so it was removed in Alpha 5.2.
 - **After a crash restart** (`main.c`): all notes off on every port once
   at start and again when USB mounts, since notes held then never get
   their Note-Off.

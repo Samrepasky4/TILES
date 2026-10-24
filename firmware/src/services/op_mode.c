@@ -13,6 +13,7 @@
 #include "game_mode.h"
 #include "hall.h"
 #include "light_effects.h"
+#include "log_store.h"
 #include "strike_settle.h"
 #include "haptics.h"
 #include "lighting.h"
@@ -24,6 +25,7 @@
 #include "octave_control.h"
 #include "play_state.h"
 #include "product_identity.h"
+#include "seq_pattern.h"
 #include "standby.h"
 #include "storage_flash.h"
 #include "touch.h"
@@ -276,7 +278,6 @@ static uint32_t s_beat_flash_start_ms;
 
 /* ---- Sequencer state ------------------------------------------------- */
 
-#define OP_SEQ_NUM_STEPS TILES_NUM_PADS /* 24: one step per pad */
 /* 6 clocks per step = one sixteenth note (24 per quarter / 4). */
 #define OP_SEQ_CLOCKS_PER_STEP 6u
 /* Clock-triggered notes have no strike, so a fixed, unaccented velocity. */
@@ -298,42 +299,15 @@ static uint32_t s_beat_flash_start_ms;
  * the bank); picking another one swaps only that lane's pattern. All lanes
  * go out over MIDI on their own channels (routing lanes to CV/gate is a
  * companion-app idea, not built). */
-#define OP_SEQ_NUM_LANES 4u
-#define OP_SEQ_ALTS_PER_LANE 6u
 #define OP_SEQ_MIN_LENGTH 1u
 #define OP_SEQ_MAX_LENGTH OP_SEQ_NUM_STEPS
 /* Magenta flash on the pads showing the new length after circle + "-"/"+". */
 #define OP_SEQ_LENGTH_FLASH_DURATION_MS 400u
-/* Up to 4 hits per step, each at least one clock pulse apart. */
-#define OP_SEQ_MAX_RATCHET 4u
 
-/* Up to 4 notes per step, enough to capture a chord (bass, root, fifth,
- * third; OP_CHORD_NUM_VOICES). Fits the one-sector pattern store thanks to
- * the packed flash layout (tiles_pattern_flash_t); the _Static_assert
- * after tiles_pattern_store_t keeps it from regressing. This runtime
- * struct stays unpacked.
- * step_note_count[i] == 0 means no note, even if armed (tap-to-arm arms an
- * empty step until a pitch is assigned); seq_fire_note() treats it as
- * silent. */
-#define OP_SEQ_MAX_NOTES_PER_STEP 4u
-
-typedef struct {
-    bool step_armed[OP_SEQ_NUM_STEPS];
-    bool step_pitch_override[OP_SEQ_NUM_STEPS];
-    /* The step's notes, used only if step_pitch_override[i]. */
-    uint8_t step_notes[OP_SEQ_NUM_STEPS][OP_SEQ_MAX_NOTES_PER_STEP];
-    uint8_t step_note_count[OP_SEQ_NUM_STEPS];
-    uint8_t step_probability_percent[OP_SEQ_NUM_STEPS]; /* 0-100, default 100; used only if probability_enabled */
-    uint8_t step_ratchet_count[OP_SEQ_NUM_STEPS];    /* 1..OP_SEQ_MAX_RATCHET, default 1 (none) */
-    /* Per-pattern probability switch: while false, every step fires as if at
-     * 100%. Turned on when any step's probability is edited
-     * (handle_edit_mode()); nothing turns it back off. */
-    bool probability_enabled;
-    uint8_t length;  /* 1..24 active steps */
-    /* No channel (that's a lane property) and no scale: patterns follow the
-     * one global scale, applied when a note plays (tiles_note_map_quantize_to_
-     * scale() in seq_fire_note()), without changing stored notes. */
-} op_seq_pattern_t;
+/* The pattern itself and its autosave form: services/seq_pattern.h. The
+ * pattern bank's one-sector store below keeps its own packed layout
+ * (tiles_pattern_flash_t). */
+_Static_assert(OP_SEQ_NUM_STEPS == TILES_NUM_PADS, "one step per pad");
 
 /* [lane][alternative] */
 static op_seq_pattern_t s_seq_pattern[OP_SEQ_NUM_LANES][OP_SEQ_ALTS_PER_LANE];
@@ -366,6 +340,9 @@ static uint32_t s_seq_length_flash_ms;
  * restarts the clock for restored running lanes. */
 static bool __uninitialized_ram(s_seq_lane_running)[OP_SEQ_NUM_LANES];
 static uint8_t s_seq_current_step[OP_SEQ_NUM_LANES]; /* 0..23 */
+/* A lane started a step since the autosave last ran (its moment to save
+ * while playing; "Sequencer autosave"). */
+static bool s_seq_step_entered;
 static bool s_seq_note_sounding[OP_SEQ_NUM_LANES];
 static uint8_t s_seq_sounding_pad[OP_SEQ_NUM_LANES]; /* 1..24, valid iff s_seq_note_sounding[lane] */
 static uint8_t s_seq_sounding_channel[OP_SEQ_NUM_LANES];
@@ -822,6 +799,7 @@ static void seq_fire_note(uint8_t lane, uint8_t step) {
  * like "trig probability" on hardware sequencers) and, if it fires, arms
  * its ratchet hits for seq_advance_clock(). */
 static void seq_enter_step(uint8_t lane, uint8_t step) {
+    s_seq_step_entered = true; /* the autosave's moment while playing */
     seq_end_current_note(lane);
     s_seq_current_step[lane] = step;
     s_seq_ratchet_remaining[lane] = 0u;
@@ -1811,12 +1789,7 @@ static void pattern_store_save_slot(uint8_t lane, uint8_t alt) {
 }
 
 static void pattern_store_clear_slot(uint8_t lane, uint8_t alt) {
-    memset(&s_seq_pattern[lane][alt], 0, sizeof(op_seq_pattern_t));
-    s_seq_pattern[lane][alt].length = OP_SEQ_NUM_STEPS;
-    for (uint8_t i = 0; i < OP_SEQ_NUM_STEPS; i++) {
-        s_seq_pattern[lane][alt].step_probability_percent[i] = 100u;
-        s_seq_pattern[lane][alt].step_ratchet_count[i] = 1u;
-    }
+    tiles_seq_pattern_reset(&s_seq_pattern[lane][alt]);
     s_pattern_slot_saved[lane][alt] = false;
     s_pattern_store_pending = true;
     printf("[op_mode] cleared lane %u pattern %u\n", (unsigned)lane, (unsigned)alt);
@@ -1843,6 +1816,119 @@ static void pattern_store_load_all(void) {
         }
     }
     printf("[op_mode] loaded saved patterns from flash\n");
+}
+
+/* ---- Sequencer autosave ----------------------------------------------------
+ * Every lane's patterns (steps, pitches and chords, length, chance,
+ * repeats), the one each lane plays and the viewed lane save themselves,
+ * like drum mode's pattern: seq_pattern.h's sparse blob appended to a
+ * two-sector log (storage/log_store.h) in its own region, newest record
+ * wins at boot over the pattern bank's store (still written by circle +
+ * tap, and loaded first, so banks saved before the autosave carry over).
+ *
+ * Any change, whatever made it, shows as a new fingerprint
+ * (tiles_seq_fingerprint(), checked every SEQ_CHECK_MS). The save waits
+ * SEQ_SAVE_QUIET_MS after the last change with no pad touched; while
+ * lanes play, it goes right after a step starts and only into erased
+ * flash (a page program, under a millisecond); an erase waits for the
+ * clock to stop, and the spare sector is erased while idle so it rarely
+ * has to. */
+#define SEQ_CHECK_MS 250u
+#define SEQ_SAVE_QUIET_MS 2000u
+#define SEQ_SAVE_RETRY_MS 30000u
+static tiles_log_t s_seq_log;
+static bool s_seq_storage;
+static bool s_seq_dirty;
+static uint32_t s_seq_fingerprint;
+static uint32_t s_seq_changed_ms;
+static uint32_t s_seq_next_check_ms;
+static uint32_t s_seq_retry_after_ms;
+static uint32_t s_seq_saves;
+static uint16_t s_seq_saved_bytes;
+static bool s_seq_truncated;
+static uint8_t s_seq_blob[TILES_LOG_MAX_PAYLOAD];
+
+static uint32_t seq_fingerprint_now(void) {
+    return tiles_seq_fingerprint(s_seq_pattern, s_seq_active_alt, s_seq_edit_lane);
+}
+
+/* After the pattern bank's store loaded. On a fresh boot the newest
+ * autosave replaces it, and with it which pattern each lane plays and the
+ * viewed lane; after a crash those two stay as RAM kept them. */
+static void seq_autosave_init(bool crash_recovered) {
+    const tiles_kv_ops_t *ops = tiles_storage_seq_region_safe() ? tiles_storage_seq_ops() : NULL;
+    s_seq_storage = ops != NULL;
+    s_seq_dirty = false;
+    tiles_log_init(&s_seq_log, ops);
+    uint16_t len = 0u, version = 0u;
+    if (s_seq_storage && tiles_log_read(&s_seq_log, s_seq_blob, sizeof(s_seq_blob), &len, &version)) {
+        uint8_t playing[OP_SEQ_NUM_LANES], viewed = 0u;
+        if (tiles_seq_decode(s_seq_pattern, playing, &viewed, s_seq_blob, len, version) && !crash_recovered) {
+            memcpy(s_seq_active_alt, playing, sizeof(playing));
+            s_seq_edit_lane = viewed;
+        }
+        s_seq_saved_bytes = len;
+    } else if (s_seq_storage) {
+        s_seq_dirty = true; /* first boot with the autosave: keep what the bank loaded */
+        s_seq_changed_ms = 0u;
+    }
+    s_seq_fingerprint = seq_fingerprint_now();
+}
+
+static void seq_autosave_service(uint32_t now_ms, bool clock_running, bool pads_touched) {
+    bool step_entered = s_seq_step_entered;
+    s_seq_step_entered = false;
+    if (!s_seq_storage) {
+        return;
+    }
+    if ((int32_t)(now_ms - s_seq_next_check_ms) >= 0) {
+        s_seq_next_check_ms = now_ms + SEQ_CHECK_MS;
+        uint32_t f = seq_fingerprint_now();
+        if (f != s_seq_fingerprint) {
+            s_seq_fingerprint = f;
+            s_seq_dirty = true;
+            s_seq_changed_ms = now_ms;
+        }
+    }
+    if (!s_seq_dirty) {
+        /* Idle and stopped: erase the spare sector now, so saves while
+         * playing never need to. */
+        if (!clock_running && !pads_touched && s_seq_log.have_newest && !s_seq_log.blank[1u - s_seq_log.newest_slot]) {
+            (void)tiles_log_prepare(&s_seq_log);
+        }
+        return;
+    }
+    if (now_ms - s_seq_changed_ms < SEQ_SAVE_QUIET_MS || pads_touched ||
+        (s_seq_retry_after_ms != 0u && (int32_t)(now_ms - s_seq_retry_after_ms) < 0)) {
+        return;
+    }
+    if (clock_running && any_lane_running() && !step_entered) {
+        return; /* playing: right after a step starts */
+    }
+    bool truncated = false;
+    uint16_t len = tiles_seq_encode(s_seq_pattern, s_seq_active_alt, s_seq_edit_lane, s_seq_blob, sizeof(s_seq_blob),
+                                    &truncated);
+    tiles_log_result_t r = tiles_log_append(&s_seq_log, s_seq_blob, len, TILES_SEQ_BLOB_VERSION, !clock_running);
+    if (r == TILES_LOG_ERR_NEEDS_ERASE) {
+        return; /* saved once the clock stops */
+    }
+    if (r != TILES_LOG_OK) {
+        s_seq_retry_after_ms = (now_ms + SEQ_SAVE_RETRY_MS) | 1u;
+        return;
+    }
+    if (truncated && !s_seq_truncated) {
+        printf("[op_mode] sequencer autosave full: kept %u bytes\n", (unsigned)len);
+    }
+    s_seq_truncated = truncated;
+    s_seq_dirty = false;
+    s_seq_retry_after_ms = 0u;
+    s_seq_saves++;
+    s_seq_saved_bytes = len;
+}
+
+tiles_op_mode_seq_store_info_t tiles_op_mode_get_seq_store_info(void) {
+    tiles_op_mode_seq_store_info_t info = {s_seq_storage, s_seq_dirty, s_seq_truncated, s_seq_saved_bytes, s_seq_saves};
+    return info;
 }
 
 /* ---- Pattern bank (diamond, sequencer only) --------------------------------
@@ -3267,16 +3353,7 @@ void tiles_op_mode_init(bool crash_recovered) {
     s_seq_capture_mode_active = false;
     for (uint8_t lane = 0; lane < OP_SEQ_NUM_LANES; lane++) {
         for (uint8_t alt = 0; alt < OP_SEQ_ALTS_PER_LANE; alt++) {
-            op_seq_pattern_t *pat = &s_seq_pattern[lane][alt];
-            for (uint8_t i = 0; i < OP_SEQ_NUM_STEPS; i++) {
-                pat->step_armed[i] = false;
-                pat->step_pitch_override[i] = false;
-                pat->step_note_count[i] = 0u;
-                pat->step_probability_percent[i] = 100u;
-                pat->step_ratchet_count[i] = 1u;
-            }
-            pat->probability_enabled = false;
-            pat->length = OP_SEQ_NUM_STEPS;
+            tiles_seq_pattern_reset(&s_seq_pattern[lane][alt]);
             s_pattern_slot_saved[lane][alt] = false;
         }
         if (!crash_recovered) {
@@ -3314,6 +3391,7 @@ void tiles_op_mode_init(bool crash_recovered) {
     /* After the defaults loop: only overwrites slots flash marks as saved. A
      * plain read, fine on every boot. */
     pattern_store_load_all();
+    seq_autosave_init(crash_recovered);
     /* Song library: same. Song tracks always come up stopped after a reboot,
      * crash included (their running state isn't in __uninitialized_ram, unlike
      * the sequencer's lanes). */
@@ -3549,8 +3627,9 @@ void tiles_op_mode_scan(void) {
     tiles_midi_clock_state_t step_clock = clock;
     step_clock.start_edge = fresh_start_edge;
     advance_playback(step_clock);
-    /* Right after the advance: it saves just after a step starts. */
+    /* Right after the advance: they save just after a step starts. */
     tiles_drum_seq_persist_service(now_ms, clock.running);
+    seq_autosave_service(now_ms, clock.running, any_pad_touched());
     /* Pattern bank and Song saves, once the clock stops. */
     if (!clock.running && !any_pad_touched()) {
         if (s_pattern_store_pending) {

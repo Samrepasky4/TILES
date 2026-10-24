@@ -137,7 +137,3 @@ bool tiles_mpr121_running(tiles_mpr121_t *dev) {
     uint8_t ecr;
     return read_regs(dev->bus, dev->addr, REG_ECR, &ecr, 1) && ecr == ECR_RUN;
 }
-
-bool tiles_mpr121_reseed(tiles_mpr121_t *dev) {
-    return write_reg(dev->bus, dev->addr, REG_ECR, 0x00u) && write_reg(dev->bus, dev->addr, REG_ECR, ECR_RUN);
-}

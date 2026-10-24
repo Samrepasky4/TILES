@@ -42,6 +42,10 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_bounce_core.c src/
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_strike_settle.c src/services/strike_settle.c -o /tmp/sentia_tiles_test_strike_settle
 /tmp/sentia_tiles_test_strike_settle
 
+# Sequencer autosave blob: round trip, empty patterns, truncation, damage.
+cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_seq_pattern.c src/services/seq_pattern.c -o /tmp/sentia_tiles_test_seq_pattern
+/tmp/sentia_tiles_test_seq_pattern
+
 # Rest guard: a pad's rest position stays true (drift, re-zero, unconfirmed).
 cc -std=c11 -Wall -Wextra -Wpedantic -Isrc/services test/test_rest_guard.c src/services/rest_guard.c -o /tmp/sentia_tiles_test_rest_guard
 /tmp/sentia_tiles_test_rest_guard

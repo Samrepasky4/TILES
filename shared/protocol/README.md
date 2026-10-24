@@ -346,8 +346,9 @@ last_result, pending, failures); the content store's
 `content.records`, `content.bytes=<used>/<capacity>`, `content.writes`,
 `content.last_result`; main-loop timing `loop.avg_us`, `loop.max_us` (last
 second) and `loop.max_ever_us`; sensor health `hall.rezeros`,
-`hall.unconfirmed`, `hall.reinits`, `hall.dead`, `touch.recoveries`,
-`touch.reseeds`; boot timing `boot.ms` (power-on to the main loop) and
+`hall.unconfirmed`, `hall.reinits`, `hall.dead`, `touch.recoveries`; the
+sequencer's autosave `seq.storage`, `seq.saved_bytes`, `seq.saves`,
+`seq.pending`, `seq.truncated`; boot timing `boot.ms` (power-on to the main loop) and
 `boot.sensors_ms`; drum mode's store `drums.storage`,
 `drums.saved_bytes`, `drums.saves`, `drums.pending`; the play state (mode,
 scale, key, octave kept across power cycles) `state.storage`,

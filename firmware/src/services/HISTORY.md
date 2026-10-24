@@ -10274,3 +10274,28 @@ change. Search it by file or feature name.
   which the sensors 26 ms). Every phase scaled by 0.9, so its shape is
   unchanged: rain 1600 -> 1450 ms, fade 700 -> 630, pulse rise/hold/fall
   700/500/1200 -> 630/450/1080; ~4.7 s -> ~4.2 s.
+- **Sequencer autosave; stuck-touch reset removed (Alpha 5.2, 2026-10-23).**
+  - Asked: "the sequences don't auto save as they should when unplugged,
+    including the pitch and step count". Only pattern bank slots saved
+    with circle + tap persisted, and only as they were at that moment;
+    every edit since, unsaved slots, step pitches and lengths were lost at
+    power-off (and at a crash: the patterns aren't __uninitialized_ram).
+    Now everything saves itself, like drum mode: services/seq_pattern.c
+    (op_seq_pattern_t moved there; a sparse blob of every non-empty
+    pattern, the playing ones first, plus each lane's playing pattern
+    and the viewed lane; host-tested) appended to a log_store in a new
+    two-sector region (flash_map.h TILES_FLASH_SEQ_OFFSET). Changes are
+    found by a fingerprint of the patterns every 250 ms, whatever made
+    them; the save waits 2 s after the last with no pad touched, goes
+    right after a step starts while lanes play, and only erases with the
+    clock stopped. At boot the bank store loads first, then the newest
+    autosave over it; the first boot after the update saves what the bank
+    loaded. INFO seq.*.
+  - Reported: "the touch rejection or whatever the recent change to
+    capacitive plus pressure is messing up playing, revert that". INFO on
+    unit 2 showed touch.reseeds=28 (the stuck-touch reset: a pad touched 3
+    minutes with no key travel re-took its controller's 12 baselines),
+    while hall.rezeros, touch.recoveries and hall.reinits were 0. Removed.
+    The controller recovery stays, now needing two failed checks in a row
+    (a single bad read would otherwise soft-reset a working controller
+    under the fingers).

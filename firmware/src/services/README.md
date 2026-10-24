@@ -16,7 +16,7 @@ before re-tuning a constant or reviving an approach that was dropped.
 
 | Module | Role |
 |---|---|
-| `touch` | Both MPR121s → per-pad touched state. Sets a controller up again if it resets; re-zeroes one whose pad reads touched for minutes with no press. |
+| `touch` | Both MPR121s → per-pad touched state. Sets a controller up again if it resets. |
 | `hall` | 24 TMAG5273s through the muxes → per-pad X/Y/Z and depth. Touched pads are read every pass (X/Y/Z); the rest round-robin (Z only). One mux channel left open between reads. Rest baseline kept true by `rest_guard`; sensors that fail or reset are set up again while no pad is touched. |
 | `buttons` | 6 function buttons (debounced) and their LEDs. Owns both PCA9685s (shared with haptics). |
 | `pedal` | 1/4" jack: sustain (CC64) or expression (CC11); sustain style SYNTH (CC64) or HOLD (TILES holds notes). |
