@@ -371,36 +371,33 @@ static uint8_t s_seq_ratchet_remaining[OP_SEQ_NUM_LANES];
 static uint32_t s_seq_ratchet_interval_pulses[OP_SEQ_NUM_LANES];
 static uint32_t s_seq_next_ratchet_pulse[OP_SEQ_NUM_LANES];
 
-/* ---- Per-step editing: pitch, probability, ratchet ---------------------
- *   - Hold a step: pitch edit (OP_SEQ_PITCH_ASSIGN_HOLD_MS); keep holding:
- *     probability (OP_SEQ_PROBABILITY_HOLD_MS). Two tiers only; three
- *     felt like too many to land reliably.
+/* ---- Per-step editing: pitch, ratchet ------------------------------------
+ *   - Hold a step: pitch edit (OP_SEQ_PITCH_ASSIGN_HOLD_MS), however long
+ *     it's held (a longer hold no longer turns into a chance dial).
  *   - Circle held first, then touch a step: ratchet edit, immediately.
  * Pitch edit stays open after release until a pad is tapped (that pad's
- * note becomes the step's note). Probability and ratchet are live dials:
- * the held pad's depth sets the value, committed at release.
+ * note becomes the step's note). Ratchet is a live dial: the held pad's
+ * depth sets the value, committed at release. Chances already in a
+ * pattern still play.
  * Triangle + circle cancels any of them.
  * A plain tap toggles the step's armed state on RELEASE, so holding an
  * armed step to edit it doesn't disarm it first. */
 typedef enum {
     OP_SEQ_EDIT_NONE = 0,
     OP_SEQ_EDIT_PITCH,
-    OP_SEQ_EDIT_PROBABILITY,
     OP_SEQ_EDIT_RATCHET,
 } op_seq_edit_mode_t;
 
 #define OP_SEQ_PITCH_ASSIGN_HOLD_MS 350u
-#define OP_SEQ_PROBABILITY_HOLD_MS 1200u
 
 static uint32_t s_seq_step_touch_started_ms[TILES_NUM_PADS]; /* 0 = not timing a hold */
 static op_seq_edit_mode_t s_seq_edit_mode;
 static uint8_t s_seq_edit_step;         /* 0..23, valid iff s_seq_edit_mode != OP_SEQ_EDIT_NONE */
-static uint32_t s_seq_edit_started_ms;  /* original touch-down time; escalation is timed from here */
 static bool s_pitch_edit_prev_pad_touched[TILES_NUM_PADS]; /* only used in OP_SEQ_EDIT_PITCH */
 /* Pitch edit sets ONE note (a tapped pad commits it and closes). Two
  * multi-note versions were tried and rejected on hardware. Steps still
  * hold up to 4 notes, for chords recorded by capture. */
-/* Depth dials (probability, ratchet): lifting a finger passes back
+/* The ratchet dial: lifting a finger passes back
  * through every lower depth, which dragged the value down on release.
  * Depth is written live in both directions, except below
  * OP_SEQ_EDIT_RELEASE_GUARD_DEPTH, the tail of a lift, where writes stop
@@ -717,7 +714,7 @@ static bool seq_step_for_pad(const op_seq_pattern_t *pat, uint8_t pad, uint8_t *
     return true;
 }
 
-static void edit_enter(uint8_t step, uint32_t started_ms); /* defined below; used for hold detection */
+static void edit_enter(uint8_t step); /* defined below; used for hold detection */
 static void edit_enter_ratchet(uint8_t step); /* defined below; used for circle + touch */
 
 /* True if `lane` is what the grid shows (sequencer mode, viewed lane). */
@@ -882,7 +879,7 @@ static void seq_handle_step_taps(uint32_t now_ms) {
         } else if (touched) {
             if (s_seq_step_touch_started_ms[step] != 0u &&
                 (now_ms - s_seq_step_touch_started_ms[step]) >= OP_SEQ_PITCH_ASSIGN_HOLD_MS) {
-                edit_enter(step, s_seq_step_touch_started_ms[step]);
+                edit_enter(step);
                 return; /* grid ownership changed under this loop: stop */
             }
         } else {
@@ -1095,11 +1092,10 @@ static void render_sequencer(float beat_flash_level, bool transport_running) {
  * (Design in the state section above.) Opening an edit silences the
  * lane's current note; playback keeps advancing underneath and the view
  * catches up on return. */
-static void edit_enter(uint8_t step, uint32_t started_ms) {
+static void edit_enter(uint8_t step) {
     seq_end_current_note(s_seq_edit_lane);
     s_seq_edit_mode = OP_SEQ_EDIT_PITCH;
     s_seq_edit_step = step;
-    s_seq_edit_started_ms = started_ms;
     for (uint8_t i = 0; i < TILES_NUM_PADS; i++) {
         s_pitch_edit_prev_pad_touched[i] = tiles_touch_is_touched((uint8_t)(i + 1u));
     }
@@ -1124,18 +1120,6 @@ static void edit_exit(void) {
     }
 }
 
-static uint8_t probability_percent_from_depth(uint16_t depth) {
-    /* ~900 = full-scale depth (as OP_MENU_SELECT_DEPTH_THRESHOLD). */
-    float fraction = (float)depth / 900.0f;
-    if (fraction < 0.0f) {
-        fraction = 0.0f;
-    }
-    if (fraction > 1.0f) {
-        fraction = 1.0f;
-    }
-    return (uint8_t)(fraction * 100.0f + 0.5f);
-}
-
 static uint8_t ratchet_count_from_depth(uint16_t depth) {
     float fraction = (float)depth / 900.0f;
     if (fraction < 0.0f) {
@@ -1154,8 +1138,8 @@ static uint8_t ratchet_count_from_depth(uint16_t depth) {
 /* Pitch: once open it stays open (the held pad can be released); the
  * first pad touched, the step's own included, becomes the step's single
  * note and the edit closes. Triangle + circle backs out unchanged.
- * Probability/ratchet: a live dial on the held pad's depth (see the
- * *_from_depth() helpers); release keeps the last value. */
+ * Ratchet: a live dial on the held pad's depth (ratchet_count_from_depth());
+ * release keeps the last value. */
 static void handle_edit_mode(uint32_t now_ms) {
     /* The pad the step shows on (seq_pad_for_step(), 4x4-aware), so release
      * is detected on the right sensor. */
@@ -1163,14 +1147,6 @@ static void handle_edit_mode(uint32_t now_ms) {
     bool edit_pad_touched = tiles_touch_is_touched(edit_pad);
 
     if (s_seq_edit_mode == OP_SEQ_EDIT_PITCH) {
-        if (edit_pad_touched && (now_ms - s_seq_edit_started_ms) >= OP_SEQ_PROBABILITY_HOLD_MS) {
-            /* Held long enough: escalate from pitch to probability. */
-            s_seq_edit_mode = OP_SEQ_EDIT_PROBABILITY;
-            /* Editing a probability turns the pattern's probability switch on;
-             * otherwise the dialed value would never be used. */
-            active_pattern()->probability_enabled = true;
-            return;
-        }
         for (uint8_t pad = 1u; pad <= TILES_NUM_PADS; pad++) {
             bool touched = tiles_touch_is_touched(pad);
             bool was_touched = s_pitch_edit_prev_pad_touched[pad - 1u];
@@ -1185,20 +1161,6 @@ static void handle_edit_mode(uint32_t now_ms) {
                 return; /* grid ownership changed under this loop: stop */
             }
             s_pitch_edit_prev_pad_touched[pad - 1u] = touched;
-        }
-        return;
-    }
-
-    if (s_seq_edit_mode == OP_SEQ_EDIT_PROBABILITY) {
-        if (!edit_pad_touched) {
-            edit_exit();
-            return;
-        }
-        uint16_t depth = tiles_hall_get_depth(edit_pad);
-        if (depth >= OP_SEQ_EDIT_RELEASE_GUARD_DEPTH) {
-            /* Live up and down above the guard (see
-             * OP_SEQ_EDIT_RELEASE_GUARD_DEPTH). */
-            active_pattern()->step_probability_percent[s_seq_edit_step] = probability_percent_from_depth(depth);
         }
         return;
     }
@@ -1303,12 +1265,6 @@ static void render_edit_mode(uint32_t now_ms, bool transport_running) {
     switch (s_seq_edit_mode) {
     case OP_SEQ_EDIT_PITCH: {
         render_pitch_edit(now_ms, transport_running);
-        break;
-    }
-    case OP_SEQ_EDIT_PROBABILITY: {
-        uint8_t percent = active_pattern()->step_probability_percent[s_seq_edit_step];
-        uint8_t lit = (uint8_t)((uint32_t)percent * TILES_NUM_PADS / 100u);
-        render_value_meter(now_ms, lit, 1.0f, 0.8f, 0.0f, transport_running); /* amber */
         break;
     }
     case OP_SEQ_EDIT_RATCHET: {

@@ -10299,3 +10299,11 @@ change. Search it by file or feature name.
     The controller recovery stays, now needing two failed checks in a row
     (a single bad read would otherwise soft-reset a working controller
     under the fingers).
+- **Holding a step no longer turns into a chance dial (Alpha 5.3,
+  2026-10-23).** Asked: "remove whatever is happening with long hold note
+  in sequencer past the select pitch". Held past OP_SEQ_PROBABILITY_HOLD_MS
+  (1.2 s), the pitch edit escalated to a probability dial on the step's
+  depth (amber meter). Removed with its edit mode and depth helper: a hold
+  opens the pitch edit and stays there. Chances already saved in a
+  pattern still play (seq_enter_step()); ratchet (circle + step) is
+  unchanged.
