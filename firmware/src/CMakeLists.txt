@@ -112,4 +112,10 @@ pico_enable_stdio_uart(sentia_tiles_firmware 0)
 # 1 KB CDC TX buffer in midi/tusb_config.h.
 target_compile_definitions(sentia_tiles_firmware PRIVATE PICO_STDIO_USB_STDOUT_TIMEOUT_US=5000)
 
+# cmake -DTILES_UNIT=N: a build for unit N (board/unit_id.h's default
+# otherwise; tools/make_update_kit.sh).
+if(DEFINED TILES_UNIT)
+    target_compile_definitions(sentia_tiles_firmware PRIVATE TILES_UNIT_NUMBER=${TILES_UNIT}u)
+endif()
+
 pico_add_extra_outputs(sentia_tiles_firmware)
