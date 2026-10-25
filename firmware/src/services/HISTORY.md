@@ -10307,3 +10307,51 @@ change. Search it by file or feature name.
   opens the pitch edit and stays there. Chances already saved in a
   pattern still play (seq_enter_step()); ratchet (circle + step) is
   unchanged.
+- **Physics modes and a new menu layout (Alpha 6.0, 2026-10-24).**
+  - Asked for more physics-based modes like Bouncing notes; eight were
+    simulated in an on-screen lab first (Ripples, Sand, Orbits, Newton's
+    cradle, strings, pendulums, billiards, membrane). Kept the first four.
+    Feedback on the lab shaped them: one set of moves for every mode (a
+    run/stop/clear on "-"/"+" was rejected: "-"/"+" stay octave in
+    Ripples, Sand and the cradle, stop/play only in Orbits); a square that
+    freezes the water was rejected as not physics (Ripples' square is
+    Splash); Orbits' free gravity felt unpredictable (planets flung off or
+    swallowed, orbits drifting off the beat), so planets now ride circles
+    with Kepler periods rounded to whole and half beats; the cradle was
+    kept as it was.
+  - services/physics_core.c (no hardware; host-tested): the four
+    simulations in beats (double), emitting notes (a cell's note,
+    velocity, length) and taps, and rendering a frame. Ripples: a ring a
+    pad a sixteenth, reach 1.1-5 pads by strike, crossings on the
+    sixteenths, a held finger bobbing once a beat, Splash drops landing on
+    eighths. Sand: drips on 1/4-1/32 by pressure, grains falling in real
+    time, 3 a cell, avalanches, a grain off every pile each 2 beats, Flip.
+    Orbits: the first strike a sun, then planets; notes by the clock at
+    each return home, stop/play resuming a whole number of beats later so
+    the grid holds; Pull lets planets pull each other (bounded by a spring
+    to their orbit and damping, 0.8 / 4 / 1.2 after the lab showed full
+    gravity throwing 3 of 5 planets out in 16 beats), off again they glide
+    back and their next pass lands on a sixteenth. Cradle: the first knock
+    on the next eighth at least 0.2 beat on, then every beat (Shuffle 4/3
+    and 2/3), 10% lower each knock.
+  - services/physics.c: the shared moves (circle + tap removes, circle +
+    hold 1 s clears, the circle view dims the scene and pulses what a tap
+    removes red), strikes measured like expression.c's (velocity at the
+    strike depth, pressure from depth over the aftertouch range), notes on
+    channel 11 through one voice per note number, kicks stopped before
+    their sustain, the beat count pulled onto a running clock's phase over
+    ~100 ms and never backwards. Modes keep moving in the background;
+    leaving one lets go of its held fingers.
+  - Menu (op_mode.c): bass guitar into column 1 under Duet, in lilac
+    (lighting.h TILES_LIGHTING_BASS_*: fretboard, menu, underglow), with
+    melodic's magenta and Duet's pink; Ableton and Volca one column left
+    (4); columns 5-6 the physics and experimental modes, each in the colour
+    of what it models: Bouncing notes lime (was violet), Newton's cradle
+    steel, Sand sand; Ripples water, Orbits night-sky violet. play_state
+    11-14, settings modes.cradle/sand/ripples/orbits (0x0809-0x080C).
+  - op_mode.c: back from transpose or the screensaver, a mode that draws
+    through standby claims it again (both release it on the way out).
+    octave_control.c: tiles_octave_control_led_levels() for modes that
+    draw every LED but keep "-"/"+" as octave.
+  - Loop on unit 2 (loop.avg_us, nothing playing): drums 1479, Bouncing
+    notes 1478, Orbits 1468, Ripples/Sand/cradle ~1562, melodic 1849.

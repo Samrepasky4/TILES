@@ -56,7 +56,7 @@ CONTENT LIST\n            every record in the content store, one line each, then
 CONTENT CLEAR\n           wipe the content store (every custom scale): OK
 TEST LEDS <0-100>\n       bench only: every LED white at that % (current measurement)
 TEST MOTORS <n> [duty%]\n bench only: pads 1..n's motors for 8 s
-TEST MODE <name>\n        bench only: switch mode (melodic duet sequencer bass song ableton drums volca prism bounce)
+TEST MODE <name>\n        bench only: switch mode (melodic duet sequencer bass song ableton drums volca prism bounce ripples sand orbits cradle)
 TEST OFF\n                bench only: back to normal
 ```
 
@@ -195,6 +195,10 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0806 | `modes.ableton` | bool | | `1` | yes |
 | 0x0807 | `modes.volca` | bool | | `1` | yes |
 | 0x0808 | `modes.bounce` | bool | | `1` | yes |
+| 0x0809 | `modes.cradle` | bool | | `1` | yes |
+| 0x080A | `modes.sand` | bool | | `1` | yes |
+| 0x080B | `modes.ripples` | bool | | `1` | yes |
+| 0x080C | `modes.orbits` | bool | | `1` | yes |
 | 0x0900 | `layout.melodic` | enum | `rows` (the default), `columns`, `fourths`, `keys`, `fifths`, `tonnetz`, `quarter_tones` (melodic mode's note layout; Feel menu, circle + triangle; firmware/src/services/note_map.h) | `rows` | yes |
 | 0x0A00 | `seq.lock` | enum | `off`, `bar`: a sequencer lane or the drums started while others play joins on the next step at the step it would be on had it played from the song's top, and stays there (16-step patterns share the bar line). No hardware gesture (firmware/src/services/op_mode.h) | `off` | yes |
 
@@ -217,11 +221,15 @@ is how much a bending pad's brightness falls at full bend (a smooth swell).
 app: `0` takes the pad off the menu (dark, can't be picked), `1` puts it back.
 Melodic is always there; turning off the mode in use switches to melodic.
 `modes.duet` is the chord + melody mode, `modes.prism` the chord machine,
-`modes.bounce` Bouncing notes. The menu itself is laid out by family, one
-column and one colour family each: melodic / Duet (magenta, pink), sequencers
-(sequencer scarlet, drums orange, Song amber), Prism (blue), bass (green),
-hardware (Ableton teal, Volca cyan), experimental (Bouncing notes violet). A
-mode's underglow and resting pads are always its menu colour.
+`modes.bounce` Bouncing notes, `modes.cradle` Newton's cradle, and
+`modes.sand`, `modes.ripples`, `modes.orbits` the other physics modes. The
+menu itself is laid out by family, one column each: melodic / Duet / bass
+(magenta, pink, lilac), sequencers (sequencer scarlet, drums orange, Song
+amber), Prism (blue), hardware (Ableton teal, Volca cyan), then two columns of
+physical modelling and experimental modes, each in the colour of what it
+models: Bouncing notes (lime), Newton's cradle (steel), Sand (sand); Ripples
+(water), Orbits (night sky). A mode's underglow and resting pads are always
+its menu colour.
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually
 driving anything -- `services/power.h`'s own external-power confirmation

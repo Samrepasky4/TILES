@@ -125,6 +125,13 @@ void tiles_lighting_flush_standby(void);
  * preview. */
 void tiles_lighting_melodic_rest_rgb(uint8_t logical_pad, float rgb[3]);
 
+/* Bass guitar mode's colour: its fretboard, menu pad and underglow. Lilac,
+ * with melodic's magenta and Duet's pink: the modes played as an
+ * instrument. */
+#define TILES_LIGHTING_BASS_R 0.75f
+#define TILES_LIGHTING_BASS_G 0.3f
+#define TILES_LIGHTING_BASS_B 1.0f
+
 /* Under a light effect the pads' resting look dims to this, for more range
  * between it and the effect's light (first guess). */
 #define TILES_LIGHTING_FX_REST_LEVEL 0.3f

@@ -50,17 +50,17 @@
  * white and fades;
  * each lane its own hue, deep blue on lane 1 through violet and magenta to
  * hot pink on lane 12, so scrolling shows where you are; an empty lane shows a faint
- * bottom pad. Violet underglow. */
+ * bottom pad. Lime underglow. */
 
 #include "midi_clock.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The mode's color (menu pad, underglow): violet, the experimental family. */
-#define TILES_BOUNCE_COLOR_R 0.5f
-#define TILES_BOUNCE_COLOR_G 0.0f
-#define TILES_BOUNCE_COLOR_B 1.0f
+/* The mode's color (menu pad, underglow): lime, a bouncing ball. */
+#define TILES_BOUNCE_COLOR_R 0.6f
+#define TILES_BOUNCE_COLOR_G 1.0f
+#define TILES_BOUNCE_COLOR_B 0.0f
 
 void tiles_bounce_mode_init(void);
 /* Entering: a finger already down isn't a tap. Leaving: nothing stops. */

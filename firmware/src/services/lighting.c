@@ -505,17 +505,17 @@ static tiles_rgb01_t standby_pad_rgb(uint8_t pad_index, uint32_t now_ms) {
 /* A pad's resting look (no touch, echo or capture): bass frets, the chord
  * strip, layout gaps and quarter tones, custom colours, the scheme. */
 static tiles_rgb01_t pad_idle_rgb(uint8_t logical_pad) {
-    /* Bass guitar mode: neck-style coloring in the mode's green (op_mode.c's
-     * menu). Unmarked frets at the idle level; inlay frets brighter; octave
-     * (double-dot) frets brightest. */
+    /* Bass guitar mode: neck-style coloring in the mode's lilac
+     * (TILES_LIGHTING_BASS_*). Unmarked frets at the idle level; inlay frets
+     * brighter; octave (double-dot) frets brightest. */
     if (tiles_note_map_is_guitar_mode_active()) {
         bool is_octave = false;
-        if (tiles_note_map_is_guitar_fret_marker_pad(logical_pad, &is_octave)) {
-            float level = is_octave ? 1.0f : 0.75f;
-            return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
-        }
         float level = look_fraction(TILES_LOOK_IDLE_BASELINE_PERCENT);
-        return (tiles_rgb01_t){level * 0.15f, level, 0.0f};
+        if (tiles_note_map_is_guitar_fret_marker_pad(logical_pad, &is_octave)) {
+            level = is_octave ? 1.0f : 0.75f;
+        }
+        return (tiles_rgb01_t){level * TILES_LIGHTING_BASS_R, level * TILES_LIGHTING_BASS_G,
+                               level * TILES_LIGHTING_BASS_B};
     }
 
     /* Chord mode's chord strip: one solid blue for the whole region. The

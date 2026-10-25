@@ -19,7 +19,8 @@
  *                   percussion channel, so a GM kit or a Drum Rack plays it
  *                   as drums. Nothing else ever sends there.
  *   Channel  11     Game mode (TILES_MIDI_CH_GAME), and bouncing notes
- *                   (TILES_MIDI_CH_BOUNCE; the two never run together).
+ *                   and the physics modes (TILES_MIDI_CH_BOUNCE; physics.h;
+ *                   a game never runs with them).
  *   Channel  12     Chord mode (TILES_MIDI_CH_CHORD).
  *   Channels 13-16  The 4 sequencer lanes (lane 0 = channel 16).
  *

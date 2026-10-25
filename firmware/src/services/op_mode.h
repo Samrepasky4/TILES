@@ -5,11 +5,13 @@
  *
  * ---- Modes (triangle opens the mode menu) ----------------------------------
  * One column per family, the first of each on row 1 (nearest the buttons),
- * more of the family below it, each family its own colours, each mode's
- * underglow and resting pads its menu colour (MENU_SLOTS in op_mode.c):
+ * more of the family below it, each mode's underglow and resting pads its
+ * menu colour (MENU_SLOTS in op_mode.c):
  *   column 1  Melodic     (magenta)  default. Notes via expression.c.
  *             Duet        (pink)     chord mode: columns 1-2 play chords
  *                                    (op_mode.c), columns 3-6 a melody grid.
+ *             Bass guitar (lilac)    rows = strings, columns = frets;
+ *                                    "-"/"+" shift the fret window.
  *   column 2  Sequencer   (scarlet)  4 lanes x 24 steps (below).
  *             Drums       (orange)   16/32-step drum sequencer on MIDI
  *                                    channel 10, Drum Rack order; circle +
@@ -17,14 +19,16 @@
  *             Song        (amber)    BETA, untested on hardware: a 24-slot
  *                                    looper, 128 steps per pattern.
  *   column 3  Prism       (blue)     chord machine (harmony.h).
- *   column 4  Bass guitar (green)    rows = strings, columns = frets;
- *                                    "-"/"+" shift the fret window.
- *   column 5  Ableton     (teal)     Scene Launch: clip grid for Live's
+ *   column 4  Ableton     (teal)     Scene Launch: clip grid for Live's
  *                                    Session View (daw-integration/).
  *             Volca       (cyan)     drum mode for a Volca Sample, each drum
  *                                    on its own channel (drum_seq.h).
- *   column 6  Bouncing notes (violet) balls bouncing in the columns
+ *   columns 5-6, physical modelling and experimental, each in the colour of
+ *   what it models:
+ *   column 5  Bouncing notes (lime)  balls bouncing in the columns
  *                                    (bounce.h).
+ *             Newton's cradle (steel), Sand (sand)   (physics.h)
+ *   column 6  Ripples (water), Orbits (night sky)   (physics.h)
  * Every mode but melodic can be taken off the menu (settings modes.*, for
  * the companion app); taking off the one in use returns to melodic.
  * The current mode pulses white in the menu. A pick (press past half)
@@ -171,6 +175,10 @@ typedef enum {
     TILES_MENU_ABLETON,
     TILES_MENU_VOLCA,
     TILES_MENU_BOUNCE,
+    TILES_MENU_CRADLE,
+    TILES_MENU_SAND,
+    TILES_MENU_RIPPLES,
+    TILES_MENU_ORBITS,
     TILES_MENU_ENTRY_COUNT
 } tiles_op_mode_menu_entry_t;
 

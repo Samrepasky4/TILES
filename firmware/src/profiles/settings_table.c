@@ -136,6 +136,10 @@ MODES_ENTRY(bass, TILES_MENU_BASS)
 MODES_ENTRY(ableton, TILES_MENU_ABLETON)
 MODES_ENTRY(volca, TILES_MENU_VOLCA)
 MODES_ENTRY(bounce, TILES_MENU_BOUNCE)
+MODES_ENTRY(cradle, TILES_MENU_CRADLE)
+MODES_ENTRY(sand, TILES_MENU_SAND)
+MODES_ENTRY(ripples, TILES_MENU_RIPPLES)
+MODES_ENTRY(orbits, TILES_MENU_ORBITS)
 
 /* ---- colour scheme and custom pad colours (lighting.h) ---- */
 _Static_assert(TILES_LIGHTING_COLOR_NONE == TILES_COLOR_NONE, "lighting and settings must agree on 'none'");
@@ -298,6 +302,13 @@ static const tiles_setting_def_t TABLE[] = {
     TILES_SETTING(0x0807, "modes.volca", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_volca, set_modes_volca),
     TILES_SETTING(0x0808, "modes.bounce", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_bounce,
                   set_modes_bounce),
+    TILES_SETTING(0x0809, "modes.cradle", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_cradle,
+                  set_modes_cradle),
+    TILES_SETTING(0x080A, "modes.sand", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_sand, set_modes_sand),
+    TILES_SETTING(0x080B, "modes.ripples", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_ripples,
+                  set_modes_ripples),
+    TILES_SETTING(0x080C, "modes.orbits", TILES_SETTING_BOOL, {.u = 0}, {.u = 1}, NULL, get_modes_orbits,
+                  set_modes_orbits),
     /* Melodic mode's layout (Feel menu, circle + triangle; note_map.h). */
     TILES_SETTING(0x0900, "layout.melodic", TILES_SETTING_ENUM, {.u = 0}, {.u = TILES_NUM_LAYOUTS - 1u}, LAYOUT_NAMES,
                   get_layout, set_layout),

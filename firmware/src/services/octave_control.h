@@ -36,6 +36,7 @@
  * mechanism; the other four buttons are untouched. */
 
 #include <stdbool.h>
+#include <stdint.h>
 
 void tiles_octave_control_init(void);
 
@@ -46,3 +47,8 @@ void tiles_octave_control_scan(void);
 
 /* True while transpose mode owns the pad grid (main.c skips standby). */
 bool tiles_octave_control_is_transpose_active(void);
+
+/* What "-"/"+"'s LEDs show now (the octave, or transpose's pulse), for a
+ * mode that draws every LED itself and keeps "-"/"+" as octave (the
+ * physics modes, services/physics.h). */
+void tiles_octave_control_led_levels(uint32_t now_ms, float *minus_level, float *plus_level);
