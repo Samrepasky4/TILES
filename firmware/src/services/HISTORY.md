@@ -10397,3 +10397,14 @@ change. Search it by file or feature name.
   ~120 ms; one chain write for all four, at most every 16 ms, changes
   under 1/64 skipped (each write is ~0.25 ms). Loop on unit 2 unchanged
   (1.94-2.12 ms across these modes, melodic 2.12 the same pass).
+- **Newton's cradle: square is the Pendulum wave (Alpha 6.3, 2026-10-26).**
+  Feedback: the square's Real (each knock lower, to rest) was too like
+  Bouncing notes' real gravity; offered Pendulum wave, Stack, Rattle, Moon
+  gravity; picked Pendulum wave. Every ball hangs on its own string:
+  column c passes the bottom 8 + c times in two bars (playing its note
+  each time), so they drift into rolling patterns and all meet on the
+  first beat of every second bar (tested: 8..13 passes, all six together
+  once per 8 beats). A strike stops a swinging ball or restarts a still
+  one in step; holding a cell above lifts it that high (louder), silent
+  until let go. Square off returns to the cradle at rest; the cradle
+  itself always swings for ever (Real removed).

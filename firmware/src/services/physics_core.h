@@ -286,10 +286,20 @@ void tiles_orbits_planet_xy(const tiles_orbits_t *o, uint8_t i, double now, floa
  * eighth at least a fifth of a beat away, then once a beat, the same
  * number flying out the other side and playing their notes (the first
  * loudest), forever, like a sequencer. Both ends at once (two hands): two
- * swings, knocking in between each other. Real (square): energy is lost,
- * each knock 10% lower, until it rests. A strike on a swinging ball
- * catches its swing; on a resting ball, taps it. */
+ * swings, knocking in between each other. A strike on a swinging ball
+ * catches its swing; on a resting ball, taps it.
+ *
+ * Pendulum wave (square): the frame is cut loose and every ball hangs on
+ * its own string, column 1 the longest. Each swings on its own, playing
+ * its note every time it passes the bottom: column 1 eight times in two
+ * bars, column 2 nine, ... column 6 thirteen. They drift apart into
+ * rolling patterns and all meet again on the first beat of every second
+ * bar. A strike on a swinging ball stops it, on a still one sets it
+ * swinging again (in step with the rest); holding a cell above a ball
+ * lifts it that high (higher, louder) and lets it go on release. */
 #define TILES_CRADLE_MAX_SWINGS 4u
+#define TILES_CRADLE_WAVE_BEATS 8.0 /* two bars: the wave lines up again */
+#define TILES_CRADLE_WAVE_FIRST 8u  /* column 1's passes in that time */
 
 typedef struct {
     bool live;
@@ -304,12 +314,21 @@ typedef struct {
 typedef struct {
     tiles_cradle_swing_t swing[TILES_CRADLE_MAX_SWINGS];
     uint8_t lift_cell[2]; /* held lifts, per side (left, right); NO_CELL if none */
-    bool real;
+    bool wave;                       /* Pendulum wave (square) */
+    bool wave_on[TILES_PHYS_COLS];   /* that ball swinging in it */
+    bool wave_held[TILES_PHYS_COLS]; /* lifted by a finger: still, silent */
+    float wave_amp[TILES_PHYS_COLS]; /* rows: how high it swings, how loud */
+    double wave_last;
     double flash_t[TILES_PHYS_CELLS];
     float flash_amp[TILES_PHYS_CELLS];
 } tiles_cradle_t;
 
 void tiles_cradle_clear(tiles_cradle_t *c);
+/* Pendulum wave on (every ball swinging, in step with the two-bar cycle)
+ * or off (back to the cradle, at rest). */
+void tiles_cradle_set_wave(tiles_cradle_t *c, bool on, double now);
+/* Beats between a column's passes in the wave. */
+double tiles_cradle_wave_interval(uint8_t col);
 /* A strike: on the bottom row, catches a swinging ball's swing or taps a
  * resting ball; above it, lifts. */
 void tiles_cradle_strike(tiles_cradle_t *c, uint8_t cell, uint8_t velocity, double now, tiles_phys_out_t *out);

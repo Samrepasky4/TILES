@@ -17,7 +17,7 @@
  *   circle + hold a pad 1 s: clears everything.
  *   circle        tap tempo, as in the sequencer.
  *   square        click: the mode's other physics (Splash, Flip, Pull,
- *                 Real; its LED lit while on). Held: the Feel menu.
+ *                 Pendulum wave; its LED lit while on). Held: the Feel menu.
  *   "-" / "+"     octave down / up (Ripples, Sand, the cradle), as in
  *                 melodic mode; Orbits: stop / play.
  *

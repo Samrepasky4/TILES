@@ -1280,8 +1280,9 @@ bool tiles_orbits_active(const tiles_orbits_t *o) {
 
 /* ============================ Newton's cradle ============================= */
 
-#define CRADLE_DECAY 0.9f       /* Real: height kept per knock */
 #define CRADLE_REST 0.15f       /* rows: below this it hangs still */
+#define CRADLE_WAVE_AMP 2.0f    /* rows: a wave ball's swing unless lifted */
+#define CRADLE_WAVE_LEVEL 0.85f /* a wave pass, relative to a knock */
 #define CRADLE_FIRST_MIN 0.2f   /* beats from letting go to the first knock, at least */
 #define CRADLE_HALF_SWING 1.0f  /* beats from knock to knock */
 #define CRADLE_NOTE_BEATS 0.5f
@@ -1289,10 +1290,46 @@ bool tiles_orbits_active(const tiles_orbits_t *o) {
 #define CRADLE_BOTTOM ((uint8_t)(TILES_PHYS_ROWS - 1u))
 
 void tiles_cradle_clear(tiles_cradle_t *c) {
-    bool real = c->real;
+    bool wave = c->wave;
+    double wave_last = c->wave_last;
     memset(c, 0, sizeof(*c));
-    c->real = real;
+    c->wave = wave;
+    c->wave_last = wave_last;
     c->lift_cell[0] = c->lift_cell[1] = TILES_PHYS_NO_CELL;
+}
+
+double tiles_cradle_wave_interval(uint8_t col) {
+    return TILES_CRADLE_WAVE_BEATS / (double)(TILES_CRADLE_WAVE_FIRST + col);
+}
+
+void tiles_cradle_set_wave(tiles_cradle_t *c, bool on, double now) {
+    if (on == c->wave) {
+        return;
+    }
+    bool keep = on;
+    tiles_cradle_clear(c); /* the swings and lifts stop either way */
+    c->wave = keep;
+    c->wave_last = now;
+    for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
+        c->wave_on[col] = on;
+        c->wave_amp[col] = CRADLE_WAVE_AMP;
+    }
+}
+
+static float level_for_height(float h) {
+    return fminf(fmaxf(h / 3.0f, CRADLE_REST), 1.0f);
+}
+
+/* A wave ball's height now: up and back down between passes. */
+static float wave_height(const tiles_cradle_t *c, uint8_t col, double now) {
+    if (c->wave_held[col]) {
+        return c->wave_amp[col];
+    }
+    if (!c->wave_on[col]) {
+        return 0.0f;
+    }
+    double u = now / tiles_cradle_wave_interval(col);
+    return c->wave_amp[col] * sinf(PHYS_PI * (float)(u - floor(u)));
 }
 
 /* Ball i (0 = the end one) of the k lifted at `side`. */
@@ -1332,8 +1369,26 @@ void tiles_cradle_strike(tiles_cradle_t *c, uint8_t cell, uint8_t velocity, doub
     if (cell >= TILES_PHYS_CELLS) {
         return;
     }
+    uint8_t col = (uint8_t)(cell % TILES_PHYS_COLS);
+    if (c->wave) {
+        if (cell / TILES_PHYS_COLS != CRADLE_BOTTOM) {
+            c->wave_held[col] = true; /* lifted: still until let go */
+            c->wave_on[col] = true;
+            c->wave_amp[col] = (float)(CRADLE_BOTTOM - cell / TILES_PHYS_COLS);
+            add_tap(out, cell, 0.3f);
+        } else if (c->wave_on[col]) {
+            c->wave_on[col] = false; /* stopped */
+            add_tap(out, cell, 0.5f);
+        } else {
+            c->wave_on[col] = true; /* swinging again, in step */
+            add_note(out, cell, (float)velocity / 127.0f, CRADLE_NOTE_BEATS);
+            add_tap(out, cell, (float)velocity / 127.0f);
+            flash(c->flash_t, c->flash_amp, cell, 1.0f, now);
+        }
+        return;
+    }
     if (cell / TILES_PHYS_COLS == CRADLE_BOTTOM) {
-        if (catch_col(c, (uint8_t)(cell % TILES_PHYS_COLS))) {
+        if (catch_col(c, col)) {
             add_tap(out, cell, 0.5f); /* a swinging ball: caught */
             return;
         }
@@ -1357,6 +1412,12 @@ void tiles_cradle_strike(tiles_cradle_t *c, uint8_t cell, uint8_t velocity, doub
 }
 
 void tiles_cradle_release(tiles_cradle_t *c, uint8_t cell, double now) {
+    if (c->wave) {
+        if (cell < TILES_PHYS_CELLS) {
+            c->wave_held[cell % TILES_PHYS_COLS] = false;
+        }
+        return;
+    }
     for (uint8_t s = 0; s < 2u; s++) {
         if (c->lift_cell[s] != cell) {
             continue;
@@ -1384,7 +1445,7 @@ void tiles_cradle_release(tiles_cradle_t *c, uint8_t cell, double now) {
 
 static void knock(tiles_cradle_t *c, tiles_cradle_swing_t *sw, tiles_phys_out_t *out) {
     double at = sw->t0 + (double)sw->dur;
-    float level = fminf(fmaxf(sw->h / 3.0f, CRADLE_REST), 1.0f);
+    float level = level_for_height(sw->h);
     for (uint8_t i = 0; i < sw->k; i++) {
         uint8_t cell = (uint8_t)(CRADLE_BOTTOM * TILES_PHYS_COLS + cradle_col((int8_t)-sw->side, i));
         float l = i == 0u ? level : level * CRADLE_FOLLOW_LEVEL;
@@ -1396,15 +1457,27 @@ static void knock(tiles_cradle_t *c, tiles_cradle_swing_t *sw, tiles_phys_out_t 
     sw->falling = false;
     sw->t0 = at;
     sw->dur = CRADLE_HALF_SWING;
-    if (c->real) {
-        sw->h *= CRADLE_DECAY; /* energy lost to the knock */
-        if (sw->h < CRADLE_REST) {
-            sw->live = false;
-        }
-    }
 }
 
 void tiles_cradle_step(tiles_cradle_t *c, double now, tiles_phys_out_t *out) {
+    if (c->wave) {
+        for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
+            if (!c->wave_on[col] || c->wave_held[col]) {
+                continue;
+            }
+            double interval = tiles_cradle_wave_interval(col);
+            double pass = floor(now / interval);
+            if (pass > floor(c->wave_last / interval)) {
+                uint8_t cell = (uint8_t)(CRADLE_BOTTOM * TILES_PHYS_COLS + col);
+                float level = level_for_height(c->wave_amp[col]) * CRADLE_WAVE_LEVEL;
+                add_note(out, cell, level, fminf((float)interval * 0.9f, CRADLE_NOTE_BEATS));
+                add_tap(out, cell, level);
+                flash(c->flash_t, c->flash_amp, cell, level, pass * interval);
+            }
+        }
+        c->wave_last = now;
+        return;
+    }
     for (uint8_t i = 0; i < TILES_CRADLE_MAX_SWINGS; i++) {
         tiles_cradle_swing_t *sw = &c->swing[i];
         while (sw->live && now - sw->t0 >= (double)sw->dur) {
@@ -1414,11 +1487,26 @@ void tiles_cradle_step(tiles_cradle_t *c, double now, tiles_phys_out_t *out) {
 }
 
 bool tiles_cradle_erase(tiles_cradle_t *c, uint8_t cell) {
-    return catch_col(c, (uint8_t)(cell % TILES_PHYS_COLS));
+    uint8_t col = (uint8_t)(cell % TILES_PHYS_COLS);
+    if (c->wave) {
+        bool was = c->wave_on[col];
+        c->wave_on[col] = false;
+        c->wave_held[col] = false;
+        return was;
+    }
+    return catch_col(c, col);
 }
 
 uint32_t tiles_cradle_erasable(const tiles_cradle_t *c) {
     uint32_t bits = 0u;
+    if (c->wave) {
+        for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
+            if (c->wave_on[col]) {
+                bits |= 1u << (CRADLE_BOTTOM * TILES_PHYS_COLS + col);
+            }
+        }
+        return bits;
+    }
     for (uint8_t i = 0; i < TILES_CRADLE_MAX_SWINGS; i++) {
         const tiles_cradle_swing_t *sw = &c->swing[i];
         if (!sw->live) {
@@ -1441,6 +1529,9 @@ static float swing_height(const tiles_cradle_swing_t *sw, double now) {
 void tiles_cradle_render(const tiles_cradle_t *c, double now, tiles_phys_frame_t frame) {
     clear_frame(frame);
     float lifted[TILES_PHYS_COLS] = {0};
+    for (uint8_t col = 0; c->wave && col < TILES_PHYS_COLS; col++) {
+        lifted[col] = wave_height(c, col, now);
+    }
     for (uint8_t s = 0; s < 2u; s++) {
         if (c->lift_cell[s] == TILES_PHYS_NO_CELL) {
             continue;
@@ -1477,6 +1568,11 @@ void tiles_cradle_render(const tiles_cradle_t *c, double now, tiles_phys_frame_t
 }
 
 bool tiles_cradle_active(const tiles_cradle_t *c) {
+    for (uint8_t col = 0; c->wave && col < TILES_PHYS_COLS; col++) {
+        if (c->wave_on[col]) {
+            return true;
+        }
+    }
     for (uint8_t i = 0; i < TILES_CRADLE_MAX_SWINGS; i++) {
         if (c->swing[i].live) {
             return true;

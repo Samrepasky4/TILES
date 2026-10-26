@@ -469,27 +469,65 @@ static void test_cradle(void) {
     tiles_cradle_strike(&c, 21u, 90u, t, &out);
     assert(out.note_count == 1u && out.note_cell[0] == 21u && out.note_velocity[0] == 90u);
 
-    /* 3. Real: each knock lower, until it rests. */
-    c.real = true;
-    tiles_phys_out_clear(&out);
-    tiles_cradle_strike(&c, 0u, 100u, t, &out); /* one ball, top row: high */
-    tiles_cradle_release(&c, 0u, t);
-    n = 0;
-    last_velocity = 128;
-    for (int i = 0; i < 64 * 256; i++) {
+    /* 3. Pendulum wave: column c passes the bottom 8 + c times in two bars,
+     * every column together on the first beat of every second bar. */
+    t = 15.9;
+    tiles_cradle_set_wave(&c, true, t);
+    assert(c.wave && tiles_cradle_active(&c));
+    int passes[6] = {0};
+    int together = 0;
+    for (int i = 0; i < (int)(8.0 / DT); i++) {
         t += DT;
         tiles_phys_out_clear(&out);
         tiles_cradle_step(&c, t, &out);
-        if (out.note_count > 0u) {
-            assert(out.note_velocity[0] <= last_velocity);
-            last_velocity = out.note_velocity[0];
-            n++;
+        for (uint8_t k = 0; k < out.note_count; k++) {
+            passes[out.note_cell[k] - 18u]++;
+        }
+        if (out.note_count == 6u) {
+            assert(just_after_grid(t, 1.0 / 8.0)); /* a multiple of 8 beats */
+            together++;
         }
     }
-    assert(n >= 15 && n < 40 && !tiles_cradle_active(&c));
+    for (int col = 0; col < 6; col++) {
+        assert(passes[col] == 8 + col);
+        assert(fabs(tiles_cradle_wave_interval((uint8_t)col) - 8.0 / (8.0 + col)) < 1e-12);
+    }
+    assert(together == 1);
+    /* A touch stops a ball, another sets it going again. */
+    tiles_phys_out_clear(&out);
+    tiles_cradle_strike(&c, 23u, 100u, t, &out);
+    assert(out.note_count == 0u && !c.wave_on[5]);
+    tiles_cradle_strike(&c, 23u, 100u, t, &out);
+    assert(out.note_count == 1u && c.wave_on[5]);
+    /* Held up top: silent until let go, then louder than the rest. */
+    tiles_cradle_strike(&c, 0u, 100u, t, &out); /* column 1, three rows up */
+    int held_notes = 0;
+    for (int i = 0; i < 256; i++) {
+        t += DT;
+        tiles_phys_out_clear(&out);
+        tiles_cradle_step(&c, t, &out);
+        held_notes += notes_on(&out, 18u);
+    }
+    assert(held_notes == 0 && c.wave_amp[0] == 3.0f);
+    tiles_cradle_release(&c, 0u, t);
+    int loud = 0, other = 0;
+    for (int i = 0; i < 2 * 256; i++) {
+        t += DT;
+        tiles_phys_out_clear(&out);
+        tiles_cradle_step(&c, t, &out);
+        if (notes_on(&out, 18u)) {
+            loud = velocity_on(&out, 18u);
+        }
+        if (notes_on(&out, 19u)) {
+            other = velocity_on(&out, 19u);
+        }
+    }
+    assert(loud > other && other > 0);
+    /* Off again: the cradle, at rest. */
+    tiles_cradle_set_wave(&c, false, t);
+    assert(!c.wave && !tiles_cradle_active(&c));
 
     /* 4. Circle + tap catches too. */
-    c.real = false;
     tiles_cradle_strike(&c, 11u, 100u, t, &out); /* one ball, right end */
     tiles_cradle_release(&c, 11u, t);
     assert(tiles_cradle_erasable(&c) & (1u << 23));

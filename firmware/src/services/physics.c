@@ -609,7 +609,7 @@ void tiles_physics_toggle_square(tiles_phys_kind_t kind) {
         tiles_orbits_set_pull(&s_orbits, !s_orbits.pull, s_beats);
         break;
     case TILES_PHYS_CRADLE:
-        s_cradle.real = !s_cradle.real;
+        tiles_cradle_set_wave(&s_cradle, !s_cradle.wave, s_beats);
         break;
     default:
         break;
@@ -625,7 +625,7 @@ bool tiles_physics_square_on(tiles_phys_kind_t kind) {
     case TILES_PHYS_ORBITS:
         return s_orbits.pull;
     case TILES_PHYS_CRADLE:
-        return s_cradle.real;
+        return s_cradle.wave;
     default:
         return false;
     }
