@@ -592,10 +592,9 @@ void tiles_physics_render(tiles_phys_kind_t kind, uint32_t now, float beat_flash
         }
         tiles_buttons_set_standby_led(board_button_for_col(col), level);
     }
+    /* What moves on the pads lights the underglow from above. */
     const float *rgb = MODE_RGB[kind < TILES_PHYS_KIND_COUNT ? kind : TILES_PHYS_RIPPLES];
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, rgb[0], rgb[1], rgb[2]);
-    }
+    tiles_lighting_set_standby_underglow_from_pads((const float(*)[3])pads, rgb[0], rgb[1], rgb[2]);
 }
 
 void tiles_physics_toggle_square(tiles_phys_kind_t kind) {

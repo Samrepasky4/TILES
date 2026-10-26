@@ -10386,3 +10386,14 @@ change. Search it by file or feature name.
     the floor and a playhead column, the sun with a faint corona, the six
     balls); moving things are a crisp dot shared between the nearest pads
     instead of a wide glow.
+- **Underglow lit by the pads in Bouncing notes and the physics modes
+  (Alpha 6.2, 2026-10-26).** Reported: the underglow "is weird" in these
+  modes and doesn't interact with playing. It was a fixed wash of the
+  mode's colour at near full level (230/255) under mostly dark pads, and
+  in Bouncing notes a lime wash under blue-to-pink lanes. Now
+  lighting.c's tiles_lighting_set_standby_underglow_from_pads(): each LED
+  takes the brightest pad light near its anchor (weight exp(-d^2/2)) over
+  a 15% floor of the mode's colour, rising at once and fading over
+  ~120 ms; one chain write for all four, at most every 16 ms, changes
+  under 1/64 skipped (each write is ~0.25 ms). Loop on unit 2 unchanged
+  (1.94-2.12 ms across these modes, melodic 2.12 the same pass).

@@ -50,7 +50,8 @@
  * white and fades;
  * each lane its own hue, deep blue on lane 1 through violet and magenta to
  * hot pink on lane 12, so scrolling shows where you are; an empty lane shows a faint
- * bottom pad. Lime underglow. */
+ * bottom pad. The underglow is lit from above by the balls, over a faint
+ * lime. */
 
 #include "midi_clock.h"
 

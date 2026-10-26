@@ -1,5 +1,6 @@
 #include "lighting.h"
 
+#include "board_layout.h"
 #include "board_pins.h"
 #include "buttons.h"
 #include "crash_indicator.h"
@@ -1146,6 +1147,69 @@ void tiles_lighting_flush_standby(void) {
             fabsf(want.b - shown.b) > 0.004f) {
             write_pad(i);
         }
+    }
+}
+
+/* Underglow from the pads. The floor keeps the mode's colour faintly at
+ * rest; a pad's light reaches an LED with weight exp(-d^2 / 2) for d pads
+ * from its anchor (1 right above it, 0.6 next to it, 0.14 two away).
+ * Changes under 1/64 aren't sent. First guesses. */
+#define GLOW_FLOOR 0.15f
+#define GLOW_RELEASE_MS 120.0f
+#define GLOW_SEND_INTERVAL_MS 16u
+#define GLOW_STEPS 64.0f
+static float s_glow_weight[TILES_LIGHTING_NUM_UNDERGLOW_PIXELS][TILES_NUM_PADS];
+static bool s_glow_weight_ready;
+static float s_glow[TILES_LIGHTING_NUM_UNDERGLOW_PIXELS][3];
+static uint32_t s_glow_ms;
+static uint32_t s_glow_sent_ms;
+
+void tiles_lighting_set_standby_underglow_from_pads(const float rgb[][3], float base_r, float base_g, float base_b) {
+    if (!s_standby_active) {
+        return;
+    }
+    if (!s_glow_weight_ready) {
+        for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
+            for (uint8_t row = 1u; row <= TILES_GRID_MAX_ROW; row++) {
+                for (uint8_t col = TILES_GRID_MIN_COL; col <= TILES_GRID_MAX_COL; col++) {
+                    float dr = (float)row - (float)g_tiles_underglow_anchor[i].row;
+                    float dc = (float)col - (float)g_tiles_underglow_anchor[i].col;
+                    s_glow_weight[i][board_pad_for_row_col(row, col) - 1u] = expf(-(dr * dr + dc * dc) * 0.5f);
+                }
+            }
+        }
+        s_glow_weight_ready = true;
+    }
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    float fall = 1.0f - expf(-(float)(now_ms - s_glow_ms) / GLOW_RELEASE_MS);
+    s_glow_ms = now_ms;
+    const float base[3] = {base_r, base_g, base_b};
+    for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
+        for (uint8_t ch = 0; ch < 3u; ch++) {
+            float want = GLOW_FLOOR * clamp01(base[ch]);
+            for (uint8_t p = 0; p < TILES_NUM_PADS; p++) {
+                want = fmaxf(want, clamp01(rgb[p][ch]) * s_glow_weight[i][p]);
+            }
+            float *g = &s_glow[i][ch];
+            *g = want > *g ? want : *g + (want - *g) * fall; /* up at once, down slowly */
+        }
+    }
+    if (now_ms - s_glow_sent_ms < GLOW_SEND_INTERVAL_MS) {
+        return;
+    }
+    bool changed = false;
+    for (uint8_t i = 0; i < TILES_LIGHTING_NUM_UNDERGLOW_PIXELS; i++) {
+        tiles_rgb01_t c = {roundf(s_glow[i][0] * GLOW_STEPS) / GLOW_STEPS, roundf(s_glow[i][1] * GLOW_STEPS) / GLOW_STEPS,
+                           roundf(s_glow[i][2] * GLOW_STEPS) / GLOW_STEPS};
+        tiles_rgb01_t *stored = &s_underglow_rgb[i];
+        if (stored->r != c.r || stored->g != c.g || stored->b != c.b) {
+            *stored = c;
+            changed = true;
+        }
+    }
+    if (changed && s_initialized) {
+        write_underglow(); /* one chain write for all four */
+        s_glow_sent_ms = now_ms;
     }
 }
 

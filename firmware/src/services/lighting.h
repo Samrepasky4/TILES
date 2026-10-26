@@ -145,6 +145,15 @@ void tiles_lighting_set_standby_frame(const float rgb[][3], uint8_t max_writes);
  * TILES_LIGHTING_UNDERGLOW_LEVEL. No-op unless standby is active. */
 void tiles_lighting_set_standby_underglow_rgb(uint8_t pixel_index, float r, float g, float b);
 
+/* The underglow as light from under the pads, for modes whose picture
+ * moves (Bouncing notes, the physics modes): each LED takes the brightest
+ * light near it (the pads around its anchor, board_layout.h, nearer ones
+ * counting more) over a dim floor of the mode's colour; it rises at once
+ * and fades over ~120 ms, and goes out at most every 16 ms (a chain write
+ * is ~0.25 ms). `rgb` is the frame (index 0 = pad 1). Call every scan;
+ * no-op unless standby is active. */
+void tiles_lighting_set_standby_underglow_from_pads(const float rgb[][3], float base_r, float base_g, float base_b);
+
 /* Bench test (settings shell `TEST LEDS`): every pad and underglow pixel
  * plain white at percent_0_to_100 of full scale, NOT the power ceiling, for
  * measuring LED current. 0 ends it and normal rendering resumes. Bypasses

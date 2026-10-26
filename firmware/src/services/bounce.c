@@ -807,7 +807,7 @@ void tiles_bounce_mode_render(uint32_t now, float beat_flash, float diamond_led,
         }
         tiles_buttons_set_standby_led(board_button_for_col(col), level);
     }
-    for (uint8_t i = 0; i < TILES_NUM_UNDERGLOW_ANCHORS; i++) {
-        tiles_lighting_set_standby_underglow_rgb(i, TILES_BOUNCE_COLOR_R, TILES_BOUNCE_COLOR_G, TILES_BOUNCE_COLOR_B);
-    }
+    /* The balls light the underglow from above as they land. */
+    tiles_lighting_set_standby_underglow_from_pads((const float(*)[3])s_frame, TILES_BOUNCE_COLOR_R, TILES_BOUNCE_COLOR_G,
+                                                   TILES_BOUNCE_COLOR_B);
 }
