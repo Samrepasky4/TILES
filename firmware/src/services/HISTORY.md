@@ -10408,3 +10408,13 @@ change. Search it by file or feature name.
   one in step; holding a cell above lifts it that high (louder), silent
   until let go. Square off returns to the cradle at rest; the cradle
   itself always swings for ever (Real removed).
+- **Pendulum wave starts from what's swinging (Alpha 6.4, 2026-10-26).**
+  Reported: Newton's cradle "is glitching out, it's always running once
+  you click the square". Turning the wave on set all six balls going at
+  once (8-13 passes each per two bars, ~8 notes a beat) with a rectified
+  sine bounce that snapped back to the floor on every pass: a strobe that
+  took six touches to quiet. Now only the balls swinging at that moment
+  carry on as pendulums (at their swing height); the rest hang still until
+  a strike starts them in step or a lift lets them go. Each ball rises and
+  settles smoothly ((1 - cos) / 2 over a pass), and a pass flashes at half
+  its level. Square off still stops every ball.

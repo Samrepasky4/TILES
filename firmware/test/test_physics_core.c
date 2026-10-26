@@ -472,8 +472,13 @@ static void test_cradle(void) {
     /* 3. Pendulum wave: column c passes the bottom 8 + c times in two bars,
      * every column together on the first beat of every second bar. */
     t = 15.9;
-    tiles_cradle_set_wave(&c, true, t);
-    assert(c.wave && tiles_cradle_active(&c));
+    tiles_cradle_set_wave(&c, true, t); /* nothing was swinging: all still */
+    assert(c.wave && !tiles_cradle_active(&c));
+    for (uint8_t col = 0; col < 6u; col++) {
+        tiles_phys_out_clear(&out);
+        tiles_cradle_strike(&c, (uint8_t)(18u + col), 100u, t, &out); /* each one set going */
+        assert(c.wave_on[col] && out.note_count == 1u);
+    }
     int passes[6] = {0};
     int together = 0;
     for (int i = 0; i < (int)(8.0 / DT); i++) {
@@ -526,6 +531,15 @@ static void test_cradle(void) {
     /* Off again: the cradle, at rest. */
     tiles_cradle_set_wave(&c, false, t);
     assert(!c.wave && !tiles_cradle_active(&c));
+    /* On while a ball swings: that swing's balls carry on as pendulums,
+     * the rest hang still. */
+    tiles_phys_out_clear(&out);
+    tiles_cradle_strike(&c, 6u, 100u, t, &out); /* one ball, two rows up */
+    tiles_cradle_release(&c, 6u, t);
+    tiles_cradle_set_wave(&c, true, t + 0.1);
+    assert(c.wave_on[0] && c.wave_on[5] && !c.wave_on[1] && !c.wave_on[2]);
+    assert(c.wave_amp[0] == 2.0f);
+    tiles_cradle_set_wave(&c, false, t + 0.2);
 
     /* 4. Circle + tap catches too. */
     tiles_cradle_strike(&c, 11u, 100u, t, &out); /* one ball, right end */

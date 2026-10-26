@@ -1283,6 +1283,7 @@ bool tiles_orbits_active(const tiles_orbits_t *o) {
 #define CRADLE_REST 0.15f       /* rows: below this it hangs still */
 #define CRADLE_WAVE_AMP 2.0f    /* rows: a wave ball's swing unless lifted */
 #define CRADLE_WAVE_LEVEL 0.85f /* a wave pass, relative to a knock */
+#define CRADLE_WAVE_FLASH 0.5f  /* a pass's flash, relative to its level */
 #define CRADLE_FIRST_MIN 0.2f   /* beats from letting go to the first knock, at least */
 #define CRADLE_HALF_SWING 1.0f  /* beats from knock to knock */
 #define CRADLE_NOTE_BEATS 0.5f
@@ -1302,17 +1303,29 @@ double tiles_cradle_wave_interval(uint8_t col) {
     return TILES_CRADLE_WAVE_BEATS / (double)(TILES_CRADLE_WAVE_FIRST + col);
 }
 
+static bool swing_uses_col(const tiles_cradle_swing_t *sw, uint8_t col);
+
 void tiles_cradle_set_wave(tiles_cradle_t *c, bool on, double now) {
     if (on == c->wave) {
         return;
     }
-    bool keep = on;
+    /* The balls moving now keep moving, each on its own string, as high
+     * as they swung. */
+    float moving[TILES_PHYS_COLS] = {0};
+    for (uint8_t i = 0; on && i < TILES_CRADLE_MAX_SWINGS; i++) {
+        const tiles_cradle_swing_t *sw = &c->swing[i];
+        for (uint8_t col = 0; sw->live && col < TILES_PHYS_COLS; col++) {
+            if (swing_uses_col(sw, col)) {
+                moving[col] = fmaxf(moving[col], sw->h);
+            }
+        }
+    }
     tiles_cradle_clear(c); /* the swings and lifts stop either way */
-    c->wave = keep;
+    c->wave = on;
     c->wave_last = now;
     for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
-        c->wave_on[col] = on;
-        c->wave_amp[col] = CRADLE_WAVE_AMP;
+        c->wave_on[col] = moving[col] > 0.0f;
+        c->wave_amp[col] = moving[col] > 0.0f ? moving[col] : CRADLE_WAVE_AMP;
     }
 }
 
@@ -1320,7 +1333,8 @@ static float level_for_height(float h) {
     return fminf(fmaxf(h / 3.0f, CRADLE_REST), 1.0f);
 }
 
-/* A wave ball's height now: up and back down between passes. */
+/* A wave ball's height now: rising and settling back smoothly between
+ * passes (a sharp bounce at six balls' speeds strobes). */
 static float wave_height(const tiles_cradle_t *c, uint8_t col, double now) {
     if (c->wave_held[col]) {
         return c->wave_amp[col];
@@ -1329,7 +1343,7 @@ static float wave_height(const tiles_cradle_t *c, uint8_t col, double now) {
         return 0.0f;
     }
     double u = now / tiles_cradle_wave_interval(col);
-    return c->wave_amp[col] * sinf(PHYS_PI * (float)(u - floor(u)));
+    return c->wave_amp[col] * 0.5f * (1.0f - cosf(PHYS_TWO_PI * (float)(u - floor(u))));
 }
 
 /* Ball i (0 = the end one) of the k lifted at `side`. */
@@ -1472,7 +1486,7 @@ void tiles_cradle_step(tiles_cradle_t *c, double now, tiles_phys_out_t *out) {
                 float level = level_for_height(c->wave_amp[col]) * CRADLE_WAVE_LEVEL;
                 add_note(out, cell, level, fminf((float)interval * 0.9f, CRADLE_NOTE_BEATS));
                 add_tap(out, cell, level);
-                flash(c->flash_t, c->flash_amp, cell, level, pass * interval);
+                flash(c->flash_t, c->flash_amp, cell, level * CRADLE_WAVE_FLASH, pass * interval);
             }
         }
         c->wave_last = now;

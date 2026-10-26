@@ -289,14 +289,16 @@ void tiles_orbits_planet_xy(const tiles_orbits_t *o, uint8_t i, double now, floa
  * swings, knocking in between each other. A strike on a swinging ball
  * catches its swing; on a resting ball, taps it.
  *
- * Pendulum wave (square): the frame is cut loose and every ball hangs on
- * its own string, column 1 the longest. Each swings on its own, playing
- * its note every time it passes the bottom: column 1 eight times in two
- * bars, column 2 nine, ... column 6 thirteen. They drift apart into
- * rolling patterns and all meet again on the first beat of every second
- * bar. A strike on a swinging ball stops it, on a still one sets it
- * swinging again (in step with the rest); holding a cell above a ball
- * lifts it that high (higher, louder) and lets it go on release. */
+ * Pendulum wave (square): every ball hangs on its own string, column 1
+ * the longest. A ball swings on its own, playing its note every time it
+ * comes down to the bottom: column 1 eight times in two bars, column 2
+ * nine, ... column 6 thirteen, so balls drift apart into rolling patterns
+ * and all meet again on the first beat of every second bar. Turning it
+ * on, the balls that were swinging carry on as pendulums; the rest hang
+ * still until set going: a strike on a still ball starts it (in step with
+ * the others), on a swinging one stops it; holding a cell above a ball
+ * lifts it that high (higher, louder) and lets it go on release. Off
+ * again, every ball stops. */
 #define TILES_CRADLE_MAX_SWINGS 4u
 #define TILES_CRADLE_WAVE_BEATS 8.0 /* two bars: the wave lines up again */
 #define TILES_CRADLE_WAVE_FIRST 8u  /* column 1's passes in that time */
@@ -324,8 +326,8 @@ typedef struct {
 } tiles_cradle_t;
 
 void tiles_cradle_clear(tiles_cradle_t *c);
-/* Pendulum wave on (every ball swinging, in step with the two-bar cycle)
- * or off (back to the cradle, at rest). */
+/* Pendulum wave on (the swinging balls carry on as pendulums, in step
+ * with the two-bar cycle) or off (back to the cradle, at rest). */
 void tiles_cradle_set_wave(tiles_cradle_t *c, bool on, double now);
 /* Beats between a column's passes in the wave. */
 double tiles_cradle_wave_interval(uint8_t col);
