@@ -2,22 +2,27 @@
 
 /* The physics modes on the hardware: Ripples, Sand, Orbits and Newton's
  * cradle (their physics: services/physics_core.h). services/op_mode.c owns
- * the mode switch, the shared buttons and the clock. Every mode plays the
- * pads' own notes (the scale, lowest bottom-left) and shares one set of
- * moves:
+ * the mode switch, the shared buttons and the clock. The modes play the
+ * pads' own notes (the scale, lowest bottom-left), Sand the scale counted
+ * up from the key note; they share one set of moves:
  *
  *   pads          make something: a strike's velocity is how big, the press
- *                 how much (Ripples' bobbing finger, Sand's pour).
- *   circle + tap  removes that one thing (a stone's rings, a column of
- *                 sand, a sun with its planets or one planet, a swing).
- *                 While circle is held the scene dims and what a tap would
- *                 remove glows red.
+ *                 how much (a stone's size, Sand's pour). What you place
+ *                 stays lit, and loops like a sequencer: a Ripples stone,
+ *                 a planet, a swing. Strike it again to take it away (a
+ *                 swing: touch one of its balls).
+ *   circle + tap  removes that one thing too (a stone, a column of sand, a
+ *                 planet, a swing). While circle is held the scene dims and
+ *                 what a tap would remove glows red.
  *   circle + hold a pad 1 s: clears everything.
  *   circle        tap tempo, as in the sequencer.
  *   square        click: the mode's other physics (Splash, Flip, Pull,
- *                 Shuffle; its LED lit while on). Held: the Feel menu.
+ *                 Real; its LED lit while on). Held: the Feel menu.
  *   "-" / "+"     octave down / up (Ripples, Sand, the cradle), as in
  *                 melodic mode; Orbits: stop / play.
+ *
+ * Each mode shows something at rest: the pond's surface, the floor the
+ * sand lands on and the playhead crossing it, the sun, the six balls.
  *
  * Time is the shared tempo (tap tempo or a DAW's clock), and while the
  * clock runs the modes keep its beat grid: their own beat count is pulled

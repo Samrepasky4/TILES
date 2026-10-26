@@ -23,8 +23,12 @@
 /* Circle + hold this long on a pad clears the mode (drums' hold-to-clear
  * gesture, shortened: one second is deliberate enough). */
 #define PHYS_CLEAR_HOLD_MS 1000u
-/* Orbits: holding a pad this long places a sun instead of a planet. */
+/* Orbits: holding a pad this long moves the sun there instead of
+ * launching a planet. */
 #define PHYS_SUN_HOLD_MS 400u
+/* A degree note's octave before the key and octave shift: C3, as Bouncing
+ * notes' lanes. */
+#define PHYS_DEGREE_BASE_NOTE 48
 /* The beat count is pulled onto a running clock's phase over about this
  * long, without ever running backwards. */
 #define PHYS_LOCK_MS 100.0
@@ -130,13 +134,39 @@ void tiles_physics_end_all_notes(void) {
     }
 }
 
-static void play_cell(uint8_t cell, uint8_t velocity, float beats, uint32_t now) {
-    uint8_t pad = pad_of(cell);
-    if (!tiles_note_map_pad_has_note(pad)) {
-        return;
+/* Scale degree `degree` counted from the key note at the octave set
+ * elsewhere (Sand's melody); 0 if past the top. */
+static uint8_t degree_note(uint8_t degree) {
+    int base = PHYS_DEGREE_BASE_NOTE + tiles_note_map_get_key_offset() + 12 * tiles_note_map_get_octave_shift();
+    uint8_t found = 0u;
+    for (int note = base < 0 ? 0 : base; note < 128; note++) {
+        if (tiles_note_map_quantize_to_scale((uint8_t)note) == (uint8_t)note) {
+            if (found == degree) {
+                return (uint8_t)note;
+            }
+            found++;
+        }
+    }
+    return 0u;
+}
+
+/* A cell's own note (degree < 0) or a scale degree. */
+static void play_note(uint8_t cell, int8_t degree, uint8_t velocity, float beats, uint32_t now) {
+    uint8_t note;
+    if (degree >= 0) {
+        note = degree_note((uint8_t)degree);
+        if (note == 0u) {
+            return;
+        }
+    } else {
+        uint8_t pad = pad_of(cell);
+        if (!tiles_note_map_pad_has_note(pad)) {
+            return;
+        }
+        note = tiles_note_map_get_note(pad);
     }
     uint32_t len = (uint32_t)fmaxf(beats * s_ms_per_beat, 20.0f);
-    voice_on(tiles_note_map_get_note(pad), velocity, (now + len) | 1u);
+    voice_on(note, velocity, (now + len) | 1u);
 }
 
 static void feel(uint8_t pad, uint8_t strength, uint32_t now) {
@@ -160,7 +190,7 @@ static void haptics_service(uint32_t now) {
 /* Every note first, then the haptics (a motor start is an I2C write). */
 static void deliver(const tiles_phys_out_t *out, bool felt, uint32_t now) {
     for (uint8_t i = 0; i < out->note_count; i++) {
-        play_cell(out->note_cell[i], out->note_velocity[i], out->note_beats[i], now);
+        play_note(out->note_cell[i], out->note_degree[i], out->note_velocity[i], out->note_beats[i], now);
     }
     if (!felt) {
         return;
@@ -285,7 +315,7 @@ static bool erase(tiles_phys_kind_t kind, uint8_t cell) {
     case TILES_PHYS_RIPPLES:
         return tiles_ripples_erase(&s_ripples, cell);
     case TILES_PHYS_SAND:
-        return tiles_sand_erase(&s_sand, cell, s_beats, sec_per_beat());
+        return tiles_sand_erase(&s_sand, cell);
     case TILES_PHYS_ORBITS:
         return tiles_orbits_erase(&s_orbits, cell);
     case TILES_PHYS_CRADLE:
@@ -301,7 +331,7 @@ static void clear_all(tiles_phys_kind_t kind) {
         tiles_ripples_clear(&s_ripples, s_ripples.rng, s_beats);
         break;
     case TILES_PHYS_SAND:
-        tiles_sand_empty_all(&s_sand, s_beats, sec_per_beat());
+        tiles_sand_clear(&s_sand, s_beats);
         break;
     case TILES_PHYS_ORBITS:
         tiles_orbits_clear(&s_orbits, s_beats);
@@ -337,7 +367,10 @@ static void on_strike(tiles_phys_kind_t kind, uint8_t cell, uint8_t i, uint32_t 
     s_struck_at[i] = s_beats;
     switch (kind) {
     case TILES_PHYS_RIPPLES:
-        tiles_ripples_strike(&s_ripples, cell, (float)velocity / 127.0f, s_beats, &out);
+        if (!tiles_ripples_strike(&s_ripples, cell, (float)velocity / 127.0f, s_beats, &out)) {
+            s_consumed[i] = true; /* a stone lifted out */
+            s_red_ms[cell] = now | 1u;
+        }
         break;
     case TILES_PHYS_SAND:
         tiles_sand_strike(&s_sand, cell, s_beats);
@@ -345,13 +378,14 @@ static void on_strike(tiles_phys_kind_t kind, uint8_t cell, uint8_t i, uint32_t 
         break;
     case TILES_PHYS_ORBITS:
         if (tiles_orbits_is_sun(&s_orbits, cell)) {
-            s_consumed[i] = true; /* a sun: nothing to launch */
+            s_consumed[i] = true; /* the sun: hold elsewhere to move it */
             feel(pad, 40u, now);
-        } else if (tiles_orbits_strike_places_sun(&s_orbits, cell)) {
-            s_consumed[i] = true; /* the first strike: the sun */
-            feel(pad, 110u, now);
+        } else if (tiles_orbits_remove_planet(&s_orbits, cell)) {
+            s_consumed[i] = true; /* a planet's own cell: it goes */
+            s_red_ms[cell] = now | 1u;
+            feel(pad, 100u, now);
         } else {
-            play_cell(cell, velocity, 0.5f, now);
+            play_note(cell, TILES_PHYS_CELL_NOTE, velocity, 0.5f, now);
             feel(pad, velocity, now);
         }
         break;
@@ -374,10 +408,9 @@ static void on_hold(tiles_phys_kind_t kind, uint8_t cell, uint8_t i, float press
         break;
     case TILES_PHYS_ORBITS:
         if (!s_consumed[i] && now - s_touch_ms[i] >= PHYS_SUN_HOLD_MS) {
-            s_consumed[i] = true; /* a hold: a sun if there's room, never a planet */
-            if (tiles_orbits_place_sun(&s_orbits, cell)) {
-                feel((uint8_t)(i + 1u), 110u, now);
-            }
+            s_consumed[i] = true; /* a hold: the sun moves here, never a planet */
+            tiles_orbits_move_sun(&s_orbits, cell, s_beats);
+            feel((uint8_t)(i + 1u), 110u, now);
         }
         break;
     default:
@@ -577,7 +610,7 @@ void tiles_physics_toggle_square(tiles_phys_kind_t kind) {
         tiles_orbits_set_pull(&s_orbits, !s_orbits.pull, s_beats);
         break;
     case TILES_PHYS_CRADLE:
-        s_cradle.shuffle = !s_cradle.shuffle;
+        s_cradle.real = !s_cradle.real;
         break;
     default:
         break;
@@ -593,7 +626,7 @@ bool tiles_physics_square_on(tiles_phys_kind_t kind) {
     case TILES_PHYS_ORBITS:
         return s_orbits.pull;
     case TILES_PHYS_CRADLE:
-        return s_cradle.shuffle;
+        return s_cradle.real;
     default:
         return false;
     }

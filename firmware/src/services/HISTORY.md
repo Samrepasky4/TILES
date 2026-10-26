@@ -10355,3 +10355,34 @@ change. Search it by file or feature name.
     draw every LED but keep "-"/"+" as octave.
   - Loop on unit 2 (loop.avg_us, nothing playing): drums 1479, Bouncing
     notes 1478, Orbits 1468, Ripples/Sand/cradle ~1562, melodic 1849.
+- **Physics modes, second pass (Alpha 6.1, 2026-10-26).** Feedback after
+  playing 6.0: the modes felt like gimmicks; not knowing what to do, and the
+  lights, were the main problems. Newton's cradle was liked but should run
+  for ever, like a sequencer, unless the square is on; Sand's colour should
+  be more like sand, and its gravity flip, though liked, wasn't musical;
+  Ripples fun but shallow; Orbits cool, but how to turn a planet off wasn't
+  obvious.
+  - Everything placed now loops and stays lit, and a strike on it takes it
+    away, the sequencer's habit: a Ripples stone drops again every bar at
+    its sixteenth (pressing while it's held makes it bigger); a planet's
+    cell stays lit in its colour and a strike there removes it; touching a
+    swinging ball catches its swing.
+  - Newton's cradle swings for ever; square = Real (10% lower each knock,
+    to rest), replacing Shuffle.
+  - Sand is a melody: the playhead crosses the six columns on triplet
+    eighths (two beats, column 1 on the beat) and plays each pile at its
+    height, one scale degree a grain from the key note (out.note_degree;
+    physics.c degree_note(), counted like Bouncing notes' lanes). Pouring
+    raises a step (each landing sounds its new note softly), avalanches
+    smooth steep jumps, the hourglass takes a grain every 8 beats. Flip
+    turns the melody upside down (pitch is still the surface's height); a
+    flip's grains land without avalanches so the notes survive it. Colour
+    1.0/0.85/0.5 (was 1.0/0.7/0.35, too orange).
+  - Orbits: the sun sits at cell 14 from the start; holding a cell moves
+    it, every planet taking its new distance and period (next pass on the
+    next sixteenth; a planet under the sun is swallowed). The second sun is
+    gone.
+  - Lights: each mode shows something at rest (the pond's faint surface,
+    the floor and a playhead column, the sun with a faint corona, the six
+    balls); moving things are a crisp dot shared between the nearest pads
+    instead of a wide glow.

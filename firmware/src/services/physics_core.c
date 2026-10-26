@@ -49,14 +49,23 @@ static uint8_t velocity_of(float level) {
     return (uint8_t)(v < 1.0f ? 1.0f : v);
 }
 
-static void add_note(tiles_phys_out_t *out, uint8_t cell, float level, float beats) {
-    if (out == NULL || cell >= TILES_PHYS_CELLS || out->note_count >= TILES_PHYS_MAX_NOTES) {
+static void add_note_at(tiles_phys_out_t *out, uint8_t cell, int8_t degree, float level, float beats) {
+    if (out == NULL || out->note_count >= TILES_PHYS_MAX_NOTES) {
+        return;
+    }
+    if (degree < 0 && cell >= TILES_PHYS_CELLS) {
         return;
     }
     out->note_cell[out->note_count] = cell;
+    out->note_degree[out->note_count] = degree;
     out->note_velocity[out->note_count] = velocity_of(level);
     out->note_beats[out->note_count] = beats;
     out->note_count++;
+}
+
+/* The cell's own note. */
+static void add_note(tiles_phys_out_t *out, uint8_t cell, float level, float beats) {
+    add_note_at(out, cell, TILES_PHYS_CELL_NOTE, level, beats);
 }
 
 static void add_tap(tiles_phys_out_t *out, uint8_t cell, float level) {
@@ -106,12 +115,14 @@ static void light(tiles_phys_frame_t frame, uint8_t cell, float r, float g, floa
     f[2] = 1.0f - (1.0f - f[2]) * (1.0f - clamp01(b * k));
 }
 
-/* A soft spot of light at (x, y), reaching `radius` pads. */
-static void glow(tiles_phys_frame_t frame, float x, float y, float r, float g, float b, float k, float radius) {
+/* Something small at (x, y): shared between the (up to four) cells around
+ * it by distance, constant in power, so a moving thing glides from pad to
+ * pad without a halo. */
+static void dot(tiles_phys_frame_t frame, float x, float y, float r, float g, float b, float k) {
     for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
-        float w = 1.0f - hypotf(cell_x(cell) - x, cell_y(cell) - y) / radius;
-        if (w > 0.0f) {
-            light(frame, cell, r, g, b, k * w * w);
+        float wx = 1.0f - fabsf(cell_x(cell) - x), wy = 1.0f - fabsf(cell_y(cell) - y);
+        if (wx > 0.0f && wy > 0.0f) {
+            light(frame, cell, r, g, b, k * sqrtf(wx * wy));
         }
     }
 }
@@ -153,13 +164,14 @@ static float wrap_pi(float a) {
 #define RIPPLE_EDGE 0.5f
 #define RIPPLE_MIN_LEVEL 0.05f /* quieter crossings don't play */
 #define RIPPLE_HIT_BEATS 0.25f
-#define RIPPLE_STRIKE_BEATS 0.5f
-#define RIPPLE_HOLD_FIRST_BEATS 0.3f /* a hold's first ring: the next beat this far on */
-#define RIPPLE_HOLD_MIN 0.35f
+#define RIPPLE_DROP_BEATS 0.5f
 #define RIPPLE_FRONT_WIDTH 0.55f /* pads either side of a front that light */
 #define RIPPLE_SPLASH_MIN 0.2f
 #define RIPPLE_SPLASH_SHARE 0.55f
 #define RIPPLE_SPLASH_AGAIN 0.6f /* chance a landing drop splashes again */
+/* The pond at rest, and a stone lying in it. */
+#define RIPPLE_SURFACE_LEVEL 0.05f
+#define RIPPLE_STONE_LEVEL 0.3f
 
 void tiles_ripples_clear(tiles_ripples_t *r, uint32_t seed, double now) {
     bool splash = r->splash;
@@ -246,26 +258,73 @@ static void throw_drops(tiles_ripples_t *r, uint8_t from, float strength, uint8_
     }
 }
 
-void tiles_ripples_strike(tiles_ripples_t *r, uint8_t cell, float strength, double now, tiles_phys_out_t *out) {
+/* A stone hits the water at `t`: its note, its ring, maybe a splash. */
+static void drop_stone(tiles_ripples_t *r, uint8_t cell, float strength, double t, tiles_phys_out_t *out) {
+    add_note(out, cell, strength, RIPPLE_DROP_BEATS);
+    add_tap(out, cell, strength);
+    flash(r->flash_t, r->flash_amp, cell, strength, t);
+    spawn_ring(r, cell, strength, t);
+    if (r->splash && strength > RIPPLE_SPLASH_MIN) {
+        throw_drops(r, cell, strength, 2u, t);
+    }
+}
+
+static tiles_ripple_stone_t *stone_at(tiles_ripples_t *r, uint8_t cell) {
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        if (r->stone[i].live && r->stone[i].cell == cell) {
+            return &r->stone[i];
+        }
+    }
+    return NULL;
+}
+
+bool tiles_ripples_has_stone(const tiles_ripples_t *r, uint8_t cell) {
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        if (r->stone[i].live && r->stone[i].cell == cell) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tiles_ripples_strike(tiles_ripples_t *r, uint8_t cell, float strength, double now, tiles_phys_out_t *out) {
     if (cell >= TILES_PHYS_CELLS) {
-        return;
+        return false;
+    }
+    tiles_ripple_stone_t *stone = stone_at(r, cell);
+    if (stone != NULL) {
+        stone->live = false; /* lifted out */
+        r->held[cell] = false;
+        add_tap(out, cell, 0.3f);
+        return false;
     }
     strength = clamp01(strength);
-    add_note(out, cell, strength, RIPPLE_STRIKE_BEATS);
-    add_tap(out, cell, strength);
-    flash(r->flash_t, r->flash_amp, cell, strength, now);
-    spawn_ring(r, cell, strength, now);
-    if (r->splash && strength > RIPPLE_SPLASH_MIN) {
-        throw_drops(r, cell, strength, 2u, now);
+    drop_stone(r, cell, strength, now, out);
+    stone = &r->stone[0];
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        if (!r->stone[i].live) {
+            stone = &r->stone[i];
+            break;
+        }
+        if (r->stone[i].strength < stone->strength) {
+            stone = &r->stone[i]; /* full: the smallest goes */
+        }
     }
+    /* It drops again at this sixteenth of the bar, every bar. */
+    double place = fmod(floor(now * 4.0 + 0.5) / 4.0, TILES_RIPPLES_LOOP_BEATS);
+    double next = floor(now / TILES_RIPPLES_LOOP_BEATS) * TILES_RIPPLES_LOOP_BEATS + place;
+    while (next <= now + 0.05) {
+        next += TILES_RIPPLES_LOOP_BEATS;
+    }
+    *stone = (tiles_ripple_stone_t){true, cell, strength, strength, next};
     r->held[cell] = true;
-    r->pressure[cell] = 0.0f;
-    r->hold_next[cell] = ceil(now + RIPPLE_HOLD_FIRST_BEATS);
+    return true;
 }
 
 void tiles_ripples_set_pressure(tiles_ripples_t *r, uint8_t cell, float pressure) {
-    if (cell < TILES_PHYS_CELLS) {
-        r->pressure[cell] = clamp01(pressure);
+    tiles_ripple_stone_t *stone = cell < TILES_PHYS_CELLS && r->held[cell] ? stone_at(r, cell) : NULL;
+    if (stone != NULL) {
+        stone->strength = fmaxf(stone->base, clamp01(pressure));
     }
 }
 
@@ -279,16 +338,12 @@ void tiles_ripples_step(tiles_ripples_t *r, double now, tiles_phys_out_t *out) {
     if (now < r->last) {
         r->last = now;
     }
-    /* Held fingers bob once a beat. */
-    for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
-        if (r->held[cell] && now >= r->hold_next[cell]) {
-            float s = RIPPLE_HOLD_MIN + (1.0f - RIPPLE_HOLD_MIN) * r->pressure[cell];
-            add_note(out, cell, s, RIPPLE_STRIKE_BEATS);
-            add_tap(out, cell, s * 0.7f);
-            flash(r->flash_t, r->flash_amp, cell, s * 0.8f, now);
-            spawn_ring(r, cell, s, r->hold_next[cell]);
-            while (r->hold_next[cell] <= now) {
-                r->hold_next[cell] += 1.0;
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        tiles_ripple_stone_t *s = &r->stone[i];
+        if (s->live && now >= s->next) {
+            drop_stone(r, s->cell, s->strength, s->next, out);
+            while (s->next <= now) {
+                s->next += TILES_RIPPLES_LOOP_BEATS;
             }
         }
     }
@@ -331,7 +386,7 @@ void tiles_ripples_step(tiles_ripples_t *r, double now, tiles_phys_out_t *out) {
         tiles_ripple_drop_t *d = &r->drop[i];
         if (d->live && d->at <= now) {
             d->live = false;
-            add_note(out, d->to, d->strength, RIPPLE_STRIKE_BEATS);
+            add_note(out, d->to, d->strength, RIPPLE_DROP_BEATS);
             add_tap(out, d->to, d->strength);
             flash(r->flash_t, r->flash_amp, d->to, d->strength, now);
             spawn_ring(r, d->to, d->strength, d->at);
@@ -346,6 +401,11 @@ void tiles_ripples_step(tiles_ripples_t *r, double now, tiles_phys_out_t *out) {
 
 bool tiles_ripples_erase(tiles_ripples_t *r, uint8_t cell) {
     bool any = false;
+    tiles_ripple_stone_t *stone = stone_at(r, cell);
+    if (stone != NULL) {
+        stone->live = false;
+        any = true;
+    }
     for (uint8_t i = 0; i < TILES_RIPPLES_MAX_RINGS; i++) {
         if (r->ring[i].live && r->ring[i].src == cell) {
             r->ring[i].live = false;
@@ -368,9 +428,9 @@ bool tiles_ripples_erase(tiles_ripples_t *r, uint8_t cell) {
 
 uint32_t tiles_ripples_erasable(const tiles_ripples_t *r) {
     uint32_t bits = 0u;
-    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_RINGS; i++) {
-        if (r->ring[i].live) {
-            bits |= 1u << r->ring[i].src;
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        if (r->stone[i].live) {
+            bits |= 1u << r->stone[i].cell;
         }
     }
     for (uint8_t i = 0; i < TILES_RIPPLES_MAX_DROPS; i++) {
@@ -383,6 +443,16 @@ uint32_t tiles_ripples_erasable(const tiles_ripples_t *r) {
 
 void tiles_ripples_render(const tiles_ripples_t *r, double now, tiles_phys_frame_t frame) {
     clear_frame(frame);
+    for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
+        light(frame, cell, TILES_RIPPLES_COLOR_R, TILES_RIPPLES_COLOR_G, TILES_RIPPLES_COLOR_B, RIPPLE_SURFACE_LEVEL);
+    }
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        const tiles_ripple_stone_t *s = &r->stone[i];
+        if (s->live) {
+            light(frame, s->cell, TILES_RIPPLES_COLOR_R, TILES_RIPPLES_COLOR_G, TILES_RIPPLES_COLOR_B,
+                  RIPPLE_STONE_LEVEL + 0.3f * s->strength);
+        }
+    }
     for (uint8_t i = 0; i < TILES_RIPPLES_MAX_RINGS; i++) {
         const tiles_ripple_ring_t *ring = &r->ring[i];
         if (!ring->live) {
@@ -410,18 +480,17 @@ void tiles_ripples_render(const tiles_ripples_t *r, double now, tiles_phys_frame
         float k = clamp01((float)((now - d->t0) / (d->at - d->t0)));
         float x = cell_x(d->from) + (cell_x(d->to) - cell_x(d->from)) * k;
         float y = cell_y(d->from) + (cell_y(d->to) - cell_y(d->from)) * k - sinf(PHYS_PI * k) * 0.6f;
-        glow(frame, x, y, 0.75f, 0.9f, 1.0f, 0.8f, 0.7f);
-    }
-    for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
-        if (r->held[cell]) {
-            light(frame, cell, TILES_RIPPLES_COLOR_R, TILES_RIPPLES_COLOR_G, TILES_RIPPLES_COLOR_B,
-                  0.35f + 0.4f * r->pressure[cell]);
-        }
+        dot(frame, x, y, 0.75f, 0.9f, 1.0f, 0.8f);
     }
     render_flashes(frame, r->flash_t, r->flash_amp, now);
 }
 
 bool tiles_ripples_active(const tiles_ripples_t *r) {
+    for (uint8_t i = 0; i < TILES_RIPPLES_MAX_STONES; i++) {
+        if (r->stone[i].live) {
+            return true;
+        }
+    }
     for (uint8_t i = 0; i < TILES_RIPPLES_MAX_RINGS; i++) {
         if (r->ring[i].live) {
             return true;
@@ -432,30 +501,32 @@ bool tiles_ripples_active(const tiles_ripples_t *r) {
             return true;
         }
     }
-    for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
-        if (r->held[cell]) {
-            return true;
-        }
-    }
     return false;
 }
 
 /* ================================== Sand ================================= */
 
-#define SAND_GRAVITY 20.0f      /* pads/s^2: top row to floor in about 0.6 s */
-#define SAND_IMPACT_FULL 8.0f   /* pads/s: a landing this fast is loudest */
-#define SAND_SLIDE_S 0.055f     /* an avalanche's grains, one after another */
-#define SAND_DRAIN_S 0.035f     /* an emptied column's grains */
-#define SAND_LEAK_BEATS 2.0     /* the hourglass: a grain off every pile */
-#define SAND_GRAIN_BEATS 0.25f
-#define SAND_LEAK_BEATS_LONG 0.5f
-#define SAND_LEAK_LEVEL 0.22f
-#define SAND_SLIDE_LEVEL 0.45f
+#define SAND_GRAVITY 20.0f    /* pads/s^2: top row to floor in about 0.6 s */
+#define SAND_SLIDE_S 0.055f   /* an avalanche's grains, one after another */
+#define SAND_LEAK_BEATS 8.0   /* the hourglass: a grain off every pile */
+#define SAND_PREVIEW_LEVEL 0.35f
+#define SAND_PREVIEW_BEATS 0.25f
+#define SAND_STEP_LEVEL 0.72f
+#define SAND_DOWNBEAT_LEVEL 0.88f /* column 1, on the beat */
 #define SAND_MAX_CASCADE 30u
+/* Light: the floor where sand will land, the pile, its surface (the note),
+ * the playhead's column. */
+#define SAND_FLOOR_LEVEL 0.06f
+#define SAND_PILE_LEVEL 0.35f
+#define SAND_SURFACE_LEVEL 0.75f
+#define SAND_PLAYHEAD_LEVEL 0.12f
 
 void tiles_sand_clear(tiles_sand_t *s, double now) {
+    int8_t gdir = s->gdir != 0 ? s->gdir : 1;
     memset(s, 0, sizeof(*s));
-    s->gdir = 1;
+    s->gdir = gdir;
+    s->playhead = TILES_PHYS_NO_CELL;
+    s->step_next = grid_at_or_after(now, (float)TILES_SAND_STEPS_PER_BEAT);
     s->leak_next = floor(now / SAND_LEAK_BEATS) * SAND_LEAK_BEATS + SAND_LEAK_BEATS;
     s->last = now;
 }
@@ -468,6 +539,16 @@ uint8_t tiles_sand_division(float pressure) {
         return 2u;
     }
     return pressure < 0.75f ? 4u : 8u;
+}
+
+/* How high the sand's surface stands, grains from the bottom edge, minus
+ * one: the column's scale degree. Upright, a pile of h is degree h - 1;
+ * hanging from the top, its surface sits 12 - h up. */
+int8_t tiles_sand_degree(const tiles_sand_t *s, uint8_t col) {
+    if (col >= TILES_PHYS_COLS || s->h[col] == 0u) {
+        return -1;
+    }
+    return s->gdir > 0 ? (int8_t)(s->h[col] - 1u) : (int8_t)(TILES_SAND_MAX_HEIGHT - s->h[col]);
 }
 
 /* The y of a column's pile surface, in rows (0 = top edge). */
@@ -485,13 +566,14 @@ static uint8_t grain_cell(const tiles_sand_t *s, uint8_t col, uint8_t level) {
     return cell_at((float)col + 0.5f, y);
 }
 
-static void spawn_grain(tiles_sand_t *s, float x, float y) {
+static uint8_t surface_cell(const tiles_sand_t *s, uint8_t col) {
+    return s->h[col] == 0u ? TILES_PHYS_NO_CELL : grain_cell(s, col, (uint8_t)(s->h[col] - 1u));
+}
+
+static void spawn_grain(tiles_sand_t *s, float x, float y, bool settles) {
     for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
         if (!s->grain[i].live) {
-            s->grain[i].live = true;
-            s->grain[i].x = x;
-            s->grain[i].y = y;
-            s->grain[i].vy = 0.0f;
+            s->grain[i] = (tiles_sand_grain_t){true, settles, x, y, 0.0f};
             return;
         }
     }
@@ -522,7 +604,7 @@ void tiles_sand_strike(tiles_sand_t *s, uint8_t cell, double now) {
     if (cell >= TILES_PHYS_CELLS) {
         return;
     }
-    spawn_grain(s, cell_x(cell), cell_y(cell));
+    spawn_grain(s, cell_x(cell), cell_y(cell), false);
     s->held[cell] = true;
     s->pressure[cell] = 0.0f;
     s->pour_next[cell] = grid_at_or_after(now + 1e-4, 1.0f);
@@ -541,21 +623,12 @@ void tiles_sand_release(tiles_sand_t *s, uint8_t cell) {
     }
 }
 
-static void add_drain(tiles_sand_t *s, uint8_t cell, double at) {
-    for (uint8_t i = 0; i < TILES_SAND_MAX_DRAINS; i++) {
-        if (!s->drain[i].live) {
-            s->drain[i] = (tiles_sand_drain_t){true, cell, at};
-            return;
-        }
+bool tiles_sand_erase(tiles_sand_t *s, uint8_t cell) {
+    if (cell >= TILES_PHYS_CELLS) {
+        return false;
     }
-}
-
-static bool empty_column(tiles_sand_t *s, uint8_t col, double start, float sec_per_beat) {
+    uint8_t col = (uint8_t)(cell % TILES_PHYS_COLS);
     bool any = s->h[col] > 0u;
-    for (uint8_t i = 0; i < s->h[col]; i++) {
-        uint8_t level = (uint8_t)(s->h[col] - 1u - i);
-        add_drain(s, grain_cell(s, col, level), start + (double)(SAND_DRAIN_S * (float)i / sec_per_beat));
-    }
     s->h[col] = 0u;
     for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
         if (s->grain[i].live && (uint8_t)s->grain[i].x == col) {
@@ -571,32 +644,18 @@ static bool empty_column(tiles_sand_t *s, uint8_t col, double start, float sec_p
     return any;
 }
 
-bool tiles_sand_erase(tiles_sand_t *s, uint8_t cell, double now, float sec_per_beat) {
-    if (cell >= TILES_PHYS_CELLS) {
-        return false;
-    }
-    return empty_column(s, (uint8_t)(cell % TILES_PHYS_COLS), now, sec_per_beat);
-}
-
-void tiles_sand_empty_all(tiles_sand_t *s, double now, float sec_per_beat) {
-    for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
-        empty_column(s, col, now + (double)(0.04f * (float)col / sec_per_beat), sec_per_beat);
-    }
-    for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
-        s->grain[i].live = false;
-    }
-}
-
 void tiles_sand_flip(tiles_sand_t *s, bool up) {
     int8_t gdir = up ? -1 : 1;
     if (gdir == s->gdir) {
         return;
     }
-    /* Every pile lets go where it lies and falls the other way. */
+    /* Every pile lets go where it lies and falls the other way, landing
+     * column by column without avalanches, so the melody keeps its notes
+     * and only turns over. */
     for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
         for (uint8_t level = 0; level < s->h[col]; level++) {
             float y = ((float)level + 0.5f) / (float)TILES_SAND_PER_CELL;
-            spawn_grain(s, (float)col + 0.5f, s->gdir > 0 ? (float)TILES_PHYS_ROWS - y : y);
+            spawn_grain(s, (float)col + 0.5f, s->gdir > 0 ? (float)TILES_PHYS_ROWS - y : y, true);
         }
         s->h[col] = 0u;
     }
@@ -625,12 +684,13 @@ void tiles_sand_step(tiles_sand_t *s, double now, float sec_per_beat, tiles_phys
             s->pour_next[cell] = next; /* pressed harder: the faster grid */
         }
         if (now >= s->pour_next[cell]) {
-            spawn_grain(s, cell_x(cell), cell_y(cell));
+            spawn_grain(s, cell_x(cell), cell_y(cell), false);
             add_tap(out, cell, 0.3f);
             s->pour_next[cell] = grid_at_or_after(now + 1e-4, div);
         }
     }
 
+    /* Falling grains; a landing sounds the column's new note, softly. */
     for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
         tiles_sand_grain_t *g = &s->grain[i];
         if (!g->live) {
@@ -649,15 +709,16 @@ void tiles_sand_step(tiles_sand_t *s, double now, float sec_per_beat, tiles_phys
             continue;
         }
         s->h[col]++;
-        uint8_t cell = grain_cell(s, col, (uint8_t)(s->h[col] - 1u));
-        float impact = clamp01(fabsf(g->vy) / SAND_IMPACT_FULL);
-        add_note(out, cell, 0.3f + 0.4f * impact, SAND_GRAIN_BEATS);
+        uint8_t cell = surface_cell(s, col);
+        add_note_at(out, cell, tiles_sand_degree(s, col), SAND_PREVIEW_LEVEL, SAND_PREVIEW_BEATS);
         add_tap(out, cell, 0.4f);
         flash(s->flash_t, s->flash_amp, cell, 0.6f, now);
-        topple(s, col, 0u, now, sec_per_beat);
+        if (!g->settles) {
+            topple(s, col, 0u, now, sec_per_beat);
+        }
     }
 
-    /* Avalanches, a grain at a time. */
+    /* Avalanches, a grain at a time, quietly: they reshape the melody. */
     for (uint8_t pass = 0; pass < 4u; pass++) {
         bool moved = false;
         for (uint8_t i = 0; i < TILES_SAND_MAX_SLIDES; i++) {
@@ -671,10 +732,9 @@ void tiles_sand_step(tiles_sand_t *s, double now, float sec_per_beat, tiles_phys
             }
             s->h[sl.from]--;
             s->h[sl.to]++;
-            uint8_t cell = grain_cell(s, sl.to, (uint8_t)(s->h[sl.to] - 1u));
-            add_note(out, cell, SAND_SLIDE_LEVEL, SAND_GRAIN_BEATS);
-            add_tap(out, cell, 0.45f);
-            flash(s->flash_t, s->flash_amp, cell, 0.8f, now);
+            uint8_t cell = surface_cell(s, sl.to);
+            add_tap(out, cell, 0.3f);
+            flash(s->flash_t, s->flash_amp, cell, 0.6f, now);
             if (sl.depth < SAND_MAX_CASCADE) {
                 topple(s, sl.to, sl.depth, now, sec_per_beat);
                 topple(s, sl.from, sl.depth, now, sec_per_beat);
@@ -693,30 +753,33 @@ void tiles_sand_step(tiles_sand_t *s, double now, float sec_per_beat, tiles_phys
         for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
             if (s->h[col] > 0u) {
                 s->h[col]--;
-                uint8_t floor_row = s->gdir > 0 ? (uint8_t)(TILES_PHYS_ROWS - 1u) : 0u;
-                add_note(out, (uint8_t)(floor_row * TILES_PHYS_COLS + col), SAND_LEAK_LEVEL, SAND_LEAK_BEATS_LONG);
             }
         }
     }
 
-    for (uint8_t i = 0; i < TILES_SAND_MAX_DRAINS; i++) {
-        tiles_sand_drain_t *d = &s->drain[i];
-        if (d->live && d->at <= now) {
-            d->live = false;
-            add_note(out, d->cell, 0.35f, SAND_GRAIN_BEATS);
-            flash(s->flash_t, s->flash_amp, d->cell, 0.5f, now);
+    /* The playhead: a column a triplet eighth, column 1 on the beat. */
+    while (now >= s->step_next) {
+        long long k = llround(s->step_next * (double)TILES_SAND_STEPS_PER_BEAT);
+        uint8_t col = (uint8_t)(k % (long long)TILES_PHYS_COLS);
+        s->playhead = col;
+        int8_t degree = tiles_sand_degree(s, col);
+        if (degree >= 0) {
+            uint8_t cell = surface_cell(s, col);
+            float level = col == 0u ? SAND_DOWNBEAT_LEVEL : SAND_STEP_LEVEL;
+            add_note_at(out, cell, degree, level, 1.0f / (float)TILES_SAND_STEPS_PER_BEAT);
+            add_tap(out, cell, 0.35f);
+            flash(s->flash_t, s->flash_amp, cell, 0.9f, s->step_next);
         }
+        s->step_next = (double)(k + 1) / (double)TILES_SAND_STEPS_PER_BEAT;
     }
 }
 
 uint32_t tiles_sand_erasable(const tiles_sand_t *s) {
     uint32_t bits = 0u;
     for (uint8_t col = 0; col < TILES_PHYS_COLS; col++) {
-        if (s->h[col] > 0u) {
-            uint8_t cell = grain_cell(s, col, (uint8_t)(s->h[col] - 1u));
-            if (cell < TILES_PHYS_CELLS) {
-                bits |= 1u << cell;
-            }
+        uint8_t cell = surface_cell(s, col);
+        if (cell < TILES_PHYS_CELLS) {
+            bits |= 1u << cell;
         }
     }
     return bits;
@@ -724,11 +787,21 @@ uint32_t tiles_sand_erasable(const tiles_sand_t *s) {
 
 void tiles_sand_render(const tiles_sand_t *s, double now, tiles_phys_frame_t frame) {
     clear_frame(frame);
+    uint8_t floor_row = s->gdir > 0 ? (uint8_t)(TILES_PHYS_ROWS - 1u) : 0u;
     for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
         uint8_t col = (uint8_t)(cell % TILES_PHYS_COLS), row = (uint8_t)(cell / TILES_PHYS_COLS);
         uint8_t from_floor = s->gdir > 0 ? (uint8_t)(TILES_PHYS_ROWS - 1u - row) : row;
         float fill = clamp01((float)s->h[col] / (float)TILES_SAND_PER_CELL - (float)from_floor);
-        light(frame, cell, TILES_SAND_COLOR_R, TILES_SAND_COLOR_G, TILES_SAND_COLOR_B, 0.55f * fill);
+        float level = SAND_PILE_LEVEL * fill;
+        if (cell == surface_cell(s, col)) {
+            level = SAND_SURFACE_LEVEL; /* the grain that sets the note */
+        } else if (s->h[col] == 0u && row == floor_row) {
+            level = SAND_FLOOR_LEVEL;
+        }
+        light(frame, cell, TILES_SAND_COLOR_R, TILES_SAND_COLOR_G, TILES_SAND_COLOR_B, level);
+        if (col == s->playhead) {
+            light(frame, cell, 1.0f, 1.0f, 1.0f, SAND_PLAYHEAD_LEVEL);
+        }
         if (s->held[cell]) {
             light(frame, cell, TILES_SAND_COLOR_R, TILES_SAND_COLOR_G, TILES_SAND_COLOR_B,
                   0.3f + 0.4f * s->pressure[cell]);
@@ -736,7 +809,7 @@ void tiles_sand_render(const tiles_sand_t *s, double now, tiles_phys_frame_t fra
     }
     for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
         if (s->grain[i].live) {
-            glow(frame, s->grain[i].x, s->grain[i].y, 1.0f, 0.9f, 0.65f, 0.75f, 0.55f);
+            dot(frame, s->grain[i].x, s->grain[i].y, 1.0f, 0.95f, 0.75f, 0.85f);
         }
     }
     render_flashes(frame, s->flash_t, s->flash_amp, now);
@@ -750,16 +823,6 @@ bool tiles_sand_active(const tiles_sand_t *s) {
     }
     for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
         if (s->grain[i].live) {
-            return true;
-        }
-    }
-    for (uint8_t i = 0; i < TILES_SAND_MAX_DRAINS; i++) {
-        if (s->drain[i].live) {
-            return true;
-        }
-    }
-    for (uint8_t cell = 0; cell < TILES_PHYS_CELLS; cell++) {
-        if (s->held[cell]) {
             return true;
         }
     }
@@ -783,6 +846,11 @@ static const float ORBIT_PERIODS[] = {1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f};
 #define ORBIT_SOFTEN 0.3f
 #define ORBIT_PASS_CHORD 0.9f /* planets closer than this play together */
 #define ORBIT_GLIDE 4.0f      /* the radius's way back after Pull, per beat */
+/* Light: a planet's own cell (where it plays), the planet, the sun. */
+#define ORBIT_HOME_LEVEL 0.35f
+#define ORBIT_PLANET_LEVEL 1.0f
+#define ORBIT_SUN_LEVEL 0.9f
+#define ORBIT_CORONA_LEVEL 0.12f
 
 static const float ORBIT_HUES[6][3] = {
     {0.7f, 0.85f, 1.0f}, /* ice */
@@ -800,13 +868,14 @@ void tiles_orbits_clear(tiles_orbits_t *o, double now) {
     bool pull = o->pull, running = o->running;
     double offset = o->offset, paused_t = o->paused_t, paused_at = o->paused_at, resume_at = o->resume_at;
     memset(o, 0, sizeof(*o));
-    /* The transport and Pull stay as they were. */
     o->pull = pull;
     o->running = running;
     o->offset = offset;
     o->paused_t = paused_t;
     o->paused_at = paused_at;
     o->resume_at = resume_at;
+    o->sun[0].live = true;
+    o->sun[0].cell = TILES_ORBITS_HOME_SUN;
     o->last_t = tiles_orbits_time(o, now);
 }
 
@@ -845,22 +914,13 @@ uint8_t tiles_orbits_sun_count(const tiles_orbits_t *o) {
     return n;
 }
 
-bool tiles_orbits_place_sun(tiles_orbits_t *o, uint8_t cell) {
-    if (cell >= TILES_PHYS_CELLS || tiles_orbits_is_sun(o, cell)) {
-        return false;
-    }
-    for (uint8_t i = 0; i < TILES_ORBITS_MAX_SUNS; i++) {
-        if (!o->sun[i].live) {
-            o->sun[i].live = true;
-            o->sun[i].cell = cell;
-            return true;
+int8_t tiles_orbits_planet_at(const tiles_orbits_t *o, uint8_t cell) {
+    for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
+        if (o->planet[i].live && o->planet[i].home == cell) {
+            return (int8_t)i;
         }
     }
-    return false;
-}
-
-bool tiles_orbits_strike_places_sun(tiles_orbits_t *o, uint8_t cell) {
-    return tiles_orbits_sun_count(o) == 0u && tiles_orbits_place_sun(o, cell);
+    return -1;
 }
 
 /* A planet's angle at orbit time t on its clockwork orbit. */
@@ -881,8 +941,7 @@ void tiles_orbits_planet_xy(const tiles_orbits_t *o, uint8_t i, double now, floa
     planet_xy_at(o, &o->planet[i], tiles_orbits_time(o, now), x, y);
 }
 
-static void start_free(tiles_orbits_t *o, tiles_orbit_planet_t *p, double t) {
-    (void)o;
+static void start_free(tiles_orbit_planet_t *p, double t) {
     p->theta = clock_angle(p, t);
     p->omega = PHYS_TWO_PI / p->period;
     p->r = p->r0 + p->r_off;
@@ -890,10 +949,15 @@ static void start_free(tiles_orbits_t *o, tiles_orbit_planet_t *p, double t) {
     p->prev_rel = wrap_pi(p->theta - p->home_angle);
 }
 
-void tiles_orbits_launch(tiles_orbits_t *o, uint8_t cell, uint8_t velocity, double struck_at) {
-    if (cell >= TILES_PHYS_CELLS || tiles_orbits_is_sun(o, cell)) {
-        return;
-    }
+/* A planet's orbit around its sun from its own cell. */
+static void fit_orbit(tiles_orbits_t *o, tiles_orbit_planet_t *p) {
+    uint8_t sun = o->sun[p->sun].cell;
+    p->r0 = cell_dist(sun, p->home);
+    p->home_angle = atan2f(cell_y(p->home) - cell_y(sun), cell_x(p->home) - cell_x(sun));
+    p->period = tiles_orbits_period(p->r0);
+}
+
+static int8_t nearest_sun(const tiles_orbits_t *o, uint8_t cell) {
     int8_t best = -1;
     float best_d = 1e9f;
     for (uint8_t i = 0; i < TILES_ORBITS_MAX_SUNS; i++) {
@@ -905,8 +969,19 @@ void tiles_orbits_launch(tiles_orbits_t *o, uint8_t cell, uint8_t velocity, doub
             }
         }
     }
-    if (best < 0) {
+    return best;
+}
+
+void tiles_orbits_launch(tiles_orbits_t *o, uint8_t cell, uint8_t velocity, double struck_at) {
+    if (cell >= TILES_PHYS_CELLS || tiles_orbits_is_sun(o, cell) || tiles_orbits_planet_at(o, cell) >= 0) {
         return;
+    }
+    if (tiles_orbits_sun_count(o) == 0u) {
+        o->sun[0].live = true;
+        o->sun[0].cell = TILES_ORBITS_HOME_SUN;
+        if (cell == TILES_ORBITS_HOME_SUN) {
+            return;
+        }
     }
     tiles_orbit_planet_t *slot = NULL;
     for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
@@ -924,20 +999,57 @@ void tiles_orbits_launch(tiles_orbits_t *o, uint8_t cell, uint8_t velocity, doub
         }
     }
     double t = tiles_orbits_time(o, struck_at);
-    uint8_t sun = o->sun[best].cell;
     memset(slot, 0, sizeof(*slot));
     slot->live = true;
     slot->home = cell;
-    slot->sun = (uint8_t)best;
+    slot->sun = (uint8_t)nearest_sun(o, cell);
     slot->velocity = velocity;
     slot->hue = (uint8_t)(o->next_hue++ % 6u);
-    slot->r0 = best_d;
-    slot->home_angle = atan2f(cell_y(cell) - cell_y(sun), cell_x(cell) - cell_x(sun));
-    slot->period = tiles_orbits_period(best_d);
+    fit_orbit(o, slot);
     slot->t_ref = floor(t * 4.0 + 0.5) / 4.0; /* home on the nearest sixteenth */
     slot->next_due = slot->t_ref + (double)slot->period;
     if (o->pull) {
-        start_free(o, slot, t);
+        start_free(slot, t);
+    }
+}
+
+bool tiles_orbits_remove_planet(tiles_orbits_t *o, uint8_t cell) {
+    int8_t i = tiles_orbits_planet_at(o, cell);
+    if (i < 0) {
+        return false;
+    }
+    o->planet[i].live = false;
+    return true;
+}
+
+void tiles_orbits_move_sun(tiles_orbits_t *o, uint8_t cell, double now) {
+    if (cell >= TILES_PHYS_CELLS) {
+        return;
+    }
+    double t = tiles_orbits_time(o, now);
+    o->sun[0].live = true;
+    o->sun[0].cell = cell;
+    for (uint8_t i = 1; i < TILES_ORBITS_MAX_SUNS; i++) {
+        o->sun[i].live = false;
+    }
+    double next = grid_at_or_after(t + 1e-6, 4.0f);
+    for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
+        tiles_orbit_planet_t *p = &o->planet[i];
+        if (!p->live) {
+            continue;
+        }
+        if (p->home == cell) {
+            p->live = false; /* the sun landed on it */
+            continue;
+        }
+        p->sun = 0u;
+        fit_orbit(o, p);
+        p->r_off = 0.0f;
+        p->next_due = next;
+        p->t_ref = next - (double)p->period;
+        if (o->pull) {
+            start_free(p, t);
+        }
     }
 }
 
@@ -952,7 +1064,7 @@ void tiles_orbits_set_pull(tiles_orbits_t *o, bool on, double now) {
             continue;
         }
         if (on) {
-            start_free(o, p, t);
+            start_free(p, t);
         } else {
             /* Back into time: the next pass on the nearest sixteenth, from
              * where it is, and the radius gliding home. */
@@ -1107,34 +1219,11 @@ void tiles_orbits_step(tiles_orbits_t *o, double now, tiles_phys_out_t *out) {
 }
 
 bool tiles_orbits_erase(tiles_orbits_t *o, uint8_t cell) {
-    for (uint8_t s = 0; s < TILES_ORBITS_MAX_SUNS; s++) {
-        if (o->sun[s].live && o->sun[s].cell == cell) {
-            o->sun[s].live = false;
-            for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
-                if (o->planet[i].sun == s) {
-                    o->planet[i].live = false; /* its planets go with it */
-                }
-            }
-            return true;
-        }
-    }
-    bool any = false;
-    for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
-        if (o->planet[i].live && o->planet[i].home == cell) {
-            o->planet[i].live = false;
-            any = true;
-        }
-    }
-    return any;
+    return tiles_orbits_remove_planet(o, cell);
 }
 
 uint32_t tiles_orbits_erasable(const tiles_orbits_t *o) {
     uint32_t bits = 0u;
-    for (uint8_t s = 0; s < TILES_ORBITS_MAX_SUNS; s++) {
-        if (o->sun[s].live) {
-            bits |= 1u << o->sun[s].cell;
-        }
-    }
     for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
         if (o->planet[i].live) {
             bits |= 1u << o->planet[i].home;
@@ -1146,17 +1235,23 @@ uint32_t tiles_orbits_erasable(const tiles_orbits_t *o) {
 void tiles_orbits_render(const tiles_orbits_t *o, double now, tiles_phys_frame_t frame) {
     clear_frame(frame);
     double t = tiles_orbits_time(o, now);
+    for (uint8_t s = 0; s < TILES_ORBITS_MAX_SUNS; s++) {
+        if (!o->sun[s].live) {
+            continue;
+        }
+        uint8_t cell = o->sun[s].cell;
+        light(frame, cell, ORBIT_SUN_R, ORBIT_SUN_G, ORBIT_SUN_B, ORBIT_SUN_LEVEL);
+        for (uint8_t n = 0; n < TILES_PHYS_CELLS; n++) {
+            if (fabsf(cell_dist(n, cell) - 1.0f) < 0.01f) {
+                light(frame, n, ORBIT_SUN_R, ORBIT_SUN_G, ORBIT_SUN_B, ORBIT_CORONA_LEVEL);
+            }
+        }
+    }
     for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
         const tiles_orbit_planet_t *p = &o->planet[i];
         if (p->live) {
             const float *c = ORBIT_HUES[p->hue % 6u];
-            light(frame, p->home, c[0], c[1], c[2], 0.18f); /* where it plays */
-        }
-    }
-    for (uint8_t s = 0; s < TILES_ORBITS_MAX_SUNS; s++) {
-        if (o->sun[s].live) {
-            uint8_t cell = o->sun[s].cell;
-            glow(frame, cell_x(cell), cell_y(cell), ORBIT_SUN_R, ORBIT_SUN_G, ORBIT_SUN_B, 0.9f, 1.0f);
+            light(frame, p->home, c[0], c[1], c[2], ORBIT_HOME_LEVEL); /* where it plays */
         }
     }
     for (uint8_t i = 0; i < TILES_ORBITS_MAX_PLANETS; i++) {
@@ -1165,7 +1260,7 @@ void tiles_orbits_render(const tiles_orbits_t *o, double now, tiles_phys_frame_t
             float x, y;
             planet_xy_at(o, p, t, &x, &y);
             const float *c = ORBIT_HUES[p->hue % 6u];
-            glow(frame, x, y, c[0], c[1], c[2], 0.95f, 0.8f);
+            dot(frame, x, y, c[0], c[1], c[2], ORBIT_PLANET_LEVEL);
         }
     }
     render_flashes(frame, o->flash_t, o->flash_amp, now);
@@ -1185,30 +1280,24 @@ bool tiles_orbits_active(const tiles_orbits_t *o) {
 
 /* ============================ Newton's cradle ============================= */
 
-#define CRADLE_DECAY 0.9f       /* height kept per knock */
+#define CRADLE_DECAY 0.9f       /* Real: height kept per knock */
 #define CRADLE_REST 0.15f       /* rows: below this it hangs still */
 #define CRADLE_FIRST_MIN 0.2f   /* beats from letting go to the first knock, at least */
+#define CRADLE_HALF_SWING 1.0f  /* beats from knock to knock */
 #define CRADLE_NOTE_BEATS 0.5f
 #define CRADLE_FOLLOW_LEVEL 0.6f /* the second and third balls out */
 #define CRADLE_BOTTOM ((uint8_t)(TILES_PHYS_ROWS - 1u))
 
 void tiles_cradle_clear(tiles_cradle_t *c) {
-    bool shuffle = c->shuffle;
+    bool real = c->real;
     memset(c, 0, sizeof(*c));
-    c->shuffle = shuffle;
+    c->real = real;
     c->lift_cell[0] = c->lift_cell[1] = TILES_PHYS_NO_CELL;
 }
 
 /* Ball i (0 = the end one) of the k lifted at `side`. */
 static uint8_t cradle_col(int8_t side, uint8_t i) {
     return side < 0 ? i : (uint8_t)(TILES_PHYS_COLS - 1u - i);
-}
-
-static float half_swing(const tiles_cradle_t *c, int8_t side) {
-    if (!c->shuffle) {
-        return 1.0f;
-    }
-    return side < 0 ? 4.0f / 3.0f : 2.0f / 3.0f;
 }
 
 static void lift_of(uint8_t cell, int8_t *side, uint8_t *k, float *h) {
@@ -1218,6 +1307,7 @@ static void lift_of(uint8_t cell, int8_t *side, uint8_t *k, float *h) {
     *h = (float)(CRADLE_BOTTOM - row);
 }
 
+/* Columns a swing moves: its k balls at either end. */
 static bool swing_uses_col(const tiles_cradle_swing_t *sw, uint8_t col) {
     for (uint8_t i = 0; i < sw->k; i++) {
         if (cradle_col(-1, i) == col || cradle_col(1, i) == col) {
@@ -1227,12 +1317,27 @@ static bool swing_uses_col(const tiles_cradle_swing_t *sw, uint8_t col) {
     return false;
 }
 
+static bool catch_col(tiles_cradle_t *c, uint8_t col) {
+    bool any = false;
+    for (uint8_t i = 0; i < TILES_CRADLE_MAX_SWINGS; i++) {
+        if (c->swing[i].live && swing_uses_col(&c->swing[i], col)) {
+            c->swing[i].live = false;
+            any = true;
+        }
+    }
+    return any;
+}
+
 void tiles_cradle_strike(tiles_cradle_t *c, uint8_t cell, uint8_t velocity, double now, tiles_phys_out_t *out) {
     if (cell >= TILES_PHYS_CELLS) {
         return;
     }
     if (cell / TILES_PHYS_COLS == CRADLE_BOTTOM) {
-        add_note(out, cell, (float)velocity / 127.0f, CRADLE_NOTE_BEATS); /* tap that ball */
+        if (catch_col(c, (uint8_t)(cell % TILES_PHYS_COLS))) {
+            add_tap(out, cell, 0.5f); /* a swinging ball: caught */
+            return;
+        }
+        add_note(out, cell, (float)velocity / 127.0f, CRADLE_NOTE_BEATS); /* a resting one: tapped */
         add_tap(out, cell, (float)velocity / 127.0f);
         flash(c->flash_t, c->flash_amp, cell, 1.0f, now);
         return;
@@ -1288,12 +1393,14 @@ static void knock(tiles_cradle_t *c, tiles_cradle_swing_t *sw, tiles_phys_out_t 
         flash(c->flash_t, c->flash_amp, cell, l, at);
     }
     sw->side = (int8_t)-sw->side;
-    sw->h *= CRADLE_DECAY;
     sw->falling = false;
     sw->t0 = at;
-    sw->dur = half_swing(c, sw->side);
-    if (sw->h < CRADLE_REST) {
-        sw->live = false;
+    sw->dur = CRADLE_HALF_SWING;
+    if (c->real) {
+        sw->h *= CRADLE_DECAY; /* energy lost to the knock */
+        if (sw->h < CRADLE_REST) {
+            sw->live = false;
+        }
     }
 }
 
@@ -1307,15 +1414,7 @@ void tiles_cradle_step(tiles_cradle_t *c, double now, tiles_phys_out_t *out) {
 }
 
 bool tiles_cradle_erase(tiles_cradle_t *c, uint8_t cell) {
-    bool any = false;
-    uint8_t col = (uint8_t)(cell % TILES_PHYS_COLS);
-    for (uint8_t i = 0; i < TILES_CRADLE_MAX_SWINGS; i++) {
-        if (c->swing[i].live && swing_uses_col(&c->swing[i], col)) {
-            c->swing[i].live = false;
-            any = true;
-        }
-    }
-    return any;
+    return catch_col(c, (uint8_t)(cell % TILES_PHYS_COLS));
 }
 
 uint32_t tiles_cradle_erasable(const tiles_cradle_t *c) {
@@ -1372,13 +1471,7 @@ void tiles_cradle_render(const tiles_cradle_t *c, double now, tiles_phys_frame_t
                   TILES_CRADLE_COLOR_B, 0.3f); /* a ball at rest */
             continue;
         }
-        float y = (float)TILES_PHYS_ROWS - 0.5f - h;
-        for (uint8_t row = 0; row < TILES_PHYS_ROWS; row++) {
-            float w = 1.0f - fabsf((float)row + 0.5f - y);
-            if (w > 0.0f) {
-                light(frame, (uint8_t)(row * TILES_PHYS_COLS + col), 0.9f, 0.92f, 1.0f, 0.95f * w);
-            }
-        }
+        dot(frame, (float)col + 0.5f, (float)TILES_PHYS_ROWS - 0.5f - h, 0.9f, 0.92f, 1.0f, 0.95f);
     }
     render_flashes(frame, c->flash_t, c->flash_amp, now);
 }
