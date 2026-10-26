@@ -3,6 +3,9 @@ import { dirname, join,} from 'node:path'
 import {  fileURLToPath,} from 'node:url'
 import { usb } from 'usb'
 import { connectUsbDevice, disconnectUsbDevice, listUsbDevices, sendTilesCommand,} from './usb'
+import { mockCommand, mockDevice } from './mockUsb'
+
+
 
 
 const __dirname = dirname(
@@ -10,6 +13,7 @@ const __dirname = dirname(
 )
 
 let mainWindow: BrowserWindow | null = null
+const isMock = process.env.TILES_MOCK === '1'
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -52,6 +56,9 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'usb:list',
     async () => {
+      if (isMock) {
+        return [mockDevice]
+      }
       return listUsbDevices()
     },
   )
@@ -63,6 +70,9 @@ app.whenReady().then(() => {
       vendorId: number,
       productId: number,
     ) => {
+      if (isMock) {
+        return { connected: true, ...mockDevice }
+      }
       return connectUsbDevice(
         vendorId,
         productId,
@@ -73,6 +83,9 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'usb:disconnect',
     async () => {
+      if (isMock) {
+        return { connected: false }
+      }
       return disconnectUsbDevice()
     },
   )
@@ -93,16 +106,13 @@ app.whenReady().then(() => {
   )
   ipcMain.handle(
   'usb:command',
-  async (
-    _event,
-    command: string,
-    multiLine = false,
-  ) => {
-    return sendTilesCommand(
-      command,
-      multiLine,
-    )
-  },
+  async (_event, command: string, multiLine = false) => {
+    if (isMock) {
+      return mockCommand(command, multiLine)
+    }
+
+    return sendTilesCommand(command, multiLine)
+  }
 )
 
   createWindow()

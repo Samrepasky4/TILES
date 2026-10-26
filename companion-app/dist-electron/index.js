@@ -92,10 +92,329 @@ async function sendTilesCommand(command, multiLine = false) {
 function hex(value) {
 	return `0x${value.toString(16).padStart(4, "0")}`;
 }
+var tiles_settings_default = {
+	_comment: "Captured from a real SENTIA TILES (board 2, firmware 0.2.0) with tools/tiles_control.py schema + list on 2026-09-29. For the companion app's fake device -- see ../BRIEF.md. 'value' is that board's current value; the real app must read it from the device.",
+	firmware: "0.2.0",
+	settings: [
+		{
+			"id": 256,
+			"key": "pedal.mode",
+			"type": "enum",
+			"values": ["sustain", "expression"],
+			"default": "sustain",
+			"value": "sustain",
+			"persist": true
+		},
+		{
+			"id": 257,
+			"key": "pedal.polarity",
+			"type": "enum",
+			"values": ["normally_open", "normally_closed"],
+			"default": "normally_open",
+			"value": "normally_open",
+			"persist": true
+		},
+		{
+			"id": 258,
+			"key": "pedal.sustain_style",
+			"type": "enum",
+			"values": ["synth", "hold"],
+			"default": "synth",
+			"value": "synth",
+			"persist": true
+		},
+		{
+			"id": 512,
+			"key": "expression.mpe_enabled",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 513,
+			"key": "expression.pitch_bend_sensitivity",
+			"type": "float",
+			"min": .001,
+			"max": 1,
+			"default": .065,
+			"value": .1,
+			"persist": true
+		},
+		{
+			"id": 514,
+			"key": "expression.aftertouch_sensitivity",
+			"type": "uint",
+			"min": 1,
+			"max": 65535,
+			"default": 900,
+			"value": 1300,
+			"persist": true
+		},
+		{
+			"id": 768,
+			"key": "cv_gate.enabled",
+			"type": "bool",
+			"default": false,
+			"value": false,
+			"persist": false
+		},
+		{
+			"id": 769,
+			"key": "cv_gate.pitch.volts_per_semitone",
+			"type": "float",
+			"min": .001,
+			"max": 1,
+			"default": .083333,
+			"value": .083333,
+			"persist": true
+		},
+		{
+			"id": 770,
+			"key": "cv_gate.pitch.reference_note",
+			"type": "int",
+			"min": 0,
+			"max": 127,
+			"default": 0,
+			"value": 0,
+			"persist": true
+		},
+		{
+			"id": 771,
+			"key": "cv_gate.pitch.zero_trim_volts",
+			"type": "float",
+			"min": -2.5,
+			"max": 2.5,
+			"default": 0,
+			"value": 0,
+			"persist": true
+		},
+		{
+			"id": 772,
+			"key": "cv_gate.pitch.gain_trim",
+			"type": "float",
+			"min": .5,
+			"max": 2,
+			"default": 1,
+			"value": 1,
+			"persist": true
+		},
+		{
+			"id": 773,
+			"key": "cv_gate.pressure.full_scale_volts",
+			"type": "float",
+			"min": .1,
+			"max": 10,
+			"default": 10,
+			"value": 10,
+			"persist": true
+		},
+		{
+			"id": 774,
+			"key": "cv_gate.pressure.zero_trim_volts",
+			"type": "float",
+			"min": -2.5,
+			"max": 2.5,
+			"default": 0,
+			"value": 0,
+			"persist": true
+		},
+		{
+			"id": 775,
+			"key": "cv_gate.pressure.gain_trim",
+			"type": "float",
+			"min": .5,
+			"max": 2,
+			"default": 1,
+			"value": 1,
+			"persist": true
+		},
+		{
+			"id": 1024,
+			"key": "look.idle_baseline_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 50,
+			"value": 50,
+			"persist": true
+		},
+		{
+			"id": 1025,
+			"key": "look.natural_pad_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 21,
+			"value": 21,
+			"persist": true
+		},
+		{
+			"id": 1026,
+			"key": "look.root_pad_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 40,
+			"value": 40,
+			"persist": true
+		},
+		{
+			"id": 1027,
+			"key": "look.fifth_pad_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 40,
+			"value": 40,
+			"persist": true
+		},
+		{
+			"id": 1028,
+			"key": "look.fifth_red_tint_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 35,
+			"value": 35,
+			"persist": true
+		},
+		{
+			"id": 1029,
+			"key": "look.echo_sustain_tint_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 35,
+			"value": 35,
+			"persist": true
+		},
+		{
+			"id": 1030,
+			"key": "look.echo_secondary_g_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 18,
+			"value": 18,
+			"persist": true
+		},
+		{
+			"id": 1031,
+			"key": "look.echo_secondary_b_percent",
+			"type": "uint",
+			"min": 0,
+			"max": 100,
+			"default": 12,
+			"value": 12,
+			"persist": true
+		},
+		{
+			"id": 1032,
+			"key": "look.echo_flash_ms",
+			"type": "uint",
+			"min": 0,
+			"max": 2e3,
+			"default": 180,
+			"value": 180,
+			"persist": true
+		},
+		{
+			"id": 1280,
+			"key": "midi.din_trs_type",
+			"type": "enum",
+			"values": ["a", "b"],
+			"default": "a",
+			"value": "a",
+			"persist": true
+		},
+		{
+			"id": 1536,
+			"key": "features.melodic_harmonics",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 1537,
+			"key": "features.harmonics.arm_ms",
+			"type": "uint",
+			"min": 0,
+			"max": 1e3,
+			"default": 150,
+			"value": 150,
+			"persist": true
+		},
+		{
+			"id": 1538,
+			"key": "features.harmonics.confirm_ms",
+			"type": "uint",
+			"min": 0,
+			"max": 500,
+			"default": 40,
+			"value": 40,
+			"persist": true
+		},
+		{
+			"id": 1539,
+			"key": "features.harmonics.press_depth",
+			"type": "uint",
+			"min": 1,
+			"max": 1e3,
+			"default": 128,
+			"value": 128,
+			"persist": true
+		}
+	]
+};
+//#endregion
+//#region src/main/mockUsb.ts
+var mockDevice = {
+	vendorId: 4617,
+	productId: 1,
+	productName: "SENTIA TILES (Simulator)",
+	manufacturerName: "Sentia Instruments"
+};
+var toWire = (value) => typeof value === "boolean" ? value ? "1" : "0" : String(value);
+var settings = new Map(tiles_settings_default.settings.map((s) => [s.key, {
+	...s,
+	value: toWire(s.value)
+}]));
+async function mockCommand(command, _multiLine = false) {
+	console.log("[SIM]", command);
+	const [action, key, ...rest] = command.trim().split(/\s+/);
+	if (action === "GET") {
+		const setting = settings.get(key);
+		return setting ? [setting.value] : ["ERR unknown-key"];
+	}
+	if (action === "SET") {
+		const setting = settings.get(key);
+		if (!setting) return ["ERR unknown-key"];
+		const value = rest.join(" ");
+		if (setting.type === "bool" && !["0", "1"].includes(value)) return ["ERR bad-value"];
+		if (setting.type === "enum" && (!setting.values || !setting.values.includes(value))) return ["ERR out-of-range"];
+		if ([
+			"int",
+			"uint",
+			"float"
+		].includes(setting.type)) {
+			const n = Number(value);
+			if (!value || !Number.isFinite(n)) return ["ERR bad-value"];
+			if (setting.type !== "float" && !Number.isInteger(n) || setting.type === "uint" && n < 0) return ["ERR bad-value"];
+			if (setting.min !== void 0 && n < setting.min || setting.max !== void 0 && n > setting.max) return ["ERR out-of-range"];
+		}
+		setting.value = value;
+		return ["OK"];
+	}
+	if (action === "LIST") return Array.from(settings.values()).map((s) => `${s.key}=${s.value}`);
+	return ["ERR unsupported-command"];
+}
 //#endregion
 //#region src/main/index.ts
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var mainWindow = null;
+var isMock = process.env.TILES_MOCK === "1";
 function createWindow() {
 	mainWindow = new BrowserWindow({
 		width: 1200,
@@ -115,12 +434,18 @@ async function sendUsbList() {
 }
 app.whenReady().then(() => {
 	ipcMain.handle("usb:list", async () => {
+		if (isMock) return [mockDevice];
 		return listUsbDevices();
 	});
 	ipcMain.handle("usb:connect", async (_event, vendorId, productId) => {
+		if (isMock) return {
+			connected: true,
+			...mockDevice
+		};
 		return connectUsbDevice(vendorId, productId);
 	});
 	ipcMain.handle("usb:disconnect", async () => {
+		if (isMock) return { connected: false };
 		return disconnectUsbDevice();
 	});
 	usb.addEventListener("connect", () => {
@@ -130,6 +455,7 @@ app.whenReady().then(() => {
 		sendUsbList();
 	});
 	ipcMain.handle("usb:command", async (_event, command, multiLine = false) => {
+		if (isMock) return mockCommand(command, multiLine);
 		return sendTilesCommand(command, multiLine);
 	});
 	createWindow();

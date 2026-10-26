@@ -5,6 +5,7 @@ import { Expression } from './expression'
 import { Midi } from './midi'
 import { Lighting } from './lighting'
 import { FeaturesHarmonics } from './featuresHarmonics'
+import { TilesVisualizer } from './TilesVisualizer'
 
 const TILES_IDS = [
   [0x1209, 0x0001], // newer firmware
@@ -52,6 +53,8 @@ function App() {
 
   return (
     <>
+    <TilesVisualizer />
+
       <Pedal />
       <Cvgate />
       <Expression />
