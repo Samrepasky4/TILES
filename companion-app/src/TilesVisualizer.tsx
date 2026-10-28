@@ -93,8 +93,8 @@ export function TilesVisualizer() {
       try {
         const lines = await window.tiles.usb.command('LIST', true)
         if (cancelled) return
-        const lookup = new Map(lines.filter(l => l.includes('='))
-          .map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
+        const lookup = new Map<string, string>(lines.filter(l => l.includes('='))
+          .map((l): [string, string] => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
         setModern(lookup.has('color.root'))
         setColors(prev => Object.fromEntries(
           Object.keys(prev).map(role => [role, lookup.get(`color.${role}`) ?? prev[role as ColorRole]])

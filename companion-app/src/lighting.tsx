@@ -17,6 +17,7 @@ const PAD_KEYS = Object.fromEntries(
     return [pad, `color.pad.${pad}`]
   }),
 )
+const CUSTOM_KEYS = { enabled: 'color.custom_pads' }
 const COMMON_KEYS = {
   idle: 'look.idle_baseline_percent',
   sustainTint: 'look.echo_sustain_tint_percent',
@@ -88,7 +89,7 @@ function LegacyLighting() {
 function ModernLighting() {
   const roles = useTilesSettings(ROLE_KEYS)
   const pads = useTilesSettings(PAD_KEYS)
-  const custom = useTilesSettings({ enabled: 'color.custom_pads' })
+  const custom = useTilesSettings(CUSTOM_KEYS)
 
   return (
     <>

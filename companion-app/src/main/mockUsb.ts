@@ -1,6 +1,5 @@
 import fixture from '../../fixtures/tiles-settings.json'
 
-type RawSetting = (typeof fixture.settings)[number]
 type Setting = {
   id: number
   key: string
@@ -42,7 +41,7 @@ function loadVersion(next: Version) {
   const list = next === '0.3.6'
     ? fixture.settings
     : [...fixture.settings.filter(s => !s.key.startsWith('color.')), ...fixture.legacySettings]
-  settings = new Map(list.map(s => [s.key, {
+  settings = new Map<string, Setting>(list.map((s): [string, Setting] => [s.key, {
     ...s,
     value: toWire(s.default),
   }]))
