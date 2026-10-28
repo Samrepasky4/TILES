@@ -73,3 +73,6 @@ export default defineConfig([
 ])
 
 ```
+
+
+See [SIMULATOR.md](SIMULATOR.md) for the hardware-free firmware 0.3.6 preview and mock USB command coverage.
