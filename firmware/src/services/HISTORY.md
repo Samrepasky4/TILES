@@ -10418,3 +10418,9 @@ change. Search it by file or feature name.
   a strike starts them in step or a lift lets them go. Each ball rises and
   settles smoothly ((1 - cos) / 2 over a pass), and a pass flashes at half
   its level. Square off still stops every ball.
+- **Sand darker (Alpha 6.5, 2026-10-28).** Reported: Sand "should be darker
+  and more sand coloured, it's getting confused with the sequencer bar"
+  (the pale 1.0/0.85/0.5 piles read near white, like the playhead's white
+  column). Colour 0.8/0.55/0.25 (a dark ochre); piles 0.35 -> 0.25, the
+  surface grain 0.75 -> 0.55, the floor 0.06 -> 0.05; falling grains in the
+  same ochre, brighter. The playhead stays white at 0.12.

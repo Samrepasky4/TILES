@@ -47,9 +47,9 @@ void tiles_phys_out_clear(tiles_phys_out_t *out);
 #define TILES_RIPPLES_COLOR_R 0.3f /* water */
 #define TILES_RIPPLES_COLOR_G 0.7f
 #define TILES_RIPPLES_COLOR_B 1.0f
-#define TILES_SAND_COLOR_R 1.0f /* sand: pale, warm, a little green */
-#define TILES_SAND_COLOR_G 0.85f
-#define TILES_SAND_COLOR_B 0.5f
+#define TILES_SAND_COLOR_R 0.8f /* sand: a dark, warm ochre */
+#define TILES_SAND_COLOR_G 0.55f
+#define TILES_SAND_COLOR_B 0.25f
 #define TILES_ORBITS_COLOR_R 0.42f /* night sky */
 #define TILES_ORBITS_COLOR_G 0.08f
 #define TILES_ORBITS_COLOR_B 1.0f

@@ -515,10 +515,10 @@ bool tiles_ripples_active(const tiles_ripples_t *r) {
 #define SAND_DOWNBEAT_LEVEL 0.88f /* column 1, on the beat */
 #define SAND_MAX_CASCADE 30u
 /* Light: the floor where sand will land, the pile, its surface (the note),
- * the playhead's column. */
-#define SAND_FLOOR_LEVEL 0.06f
-#define SAND_PILE_LEVEL 0.35f
-#define SAND_SURFACE_LEVEL 0.75f
+ * the playhead's column (white, so it reads apart from the sand). */
+#define SAND_FLOOR_LEVEL 0.05f
+#define SAND_PILE_LEVEL 0.25f
+#define SAND_SURFACE_LEVEL 0.55f
 #define SAND_PLAYHEAD_LEVEL 0.12f
 
 void tiles_sand_clear(tiles_sand_t *s, double now) {
@@ -809,7 +809,7 @@ void tiles_sand_render(const tiles_sand_t *s, double now, tiles_phys_frame_t fra
     }
     for (uint8_t i = 0; i < TILES_SAND_MAX_GRAINS; i++) {
         if (s->grain[i].live) {
-            dot(frame, s->grain[i].x, s->grain[i].y, 1.0f, 0.95f, 0.75f, 0.85f);
+            dot(frame, s->grain[i].x, s->grain[i].y, 0.95f, 0.7f, 0.35f, 0.8f);
         }
     }
     render_flashes(frame, s->flash_t, s->flash_amp, now);
