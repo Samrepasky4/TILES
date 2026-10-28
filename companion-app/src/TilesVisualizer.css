@@ -105,10 +105,19 @@
 }
 
 .tiles-pad.is-active {
-  background: var(--active-pad-color);
-  border-color: #ffffff;
-  box-shadow: 0 0 20px #ffffff80;
-  color: #191a26;
+  background: color-mix(
+    in srgb,
+    var(--pad-color) 15%,
+    var(--pad-background)
+  );
+
+  border-color: var(--pad-color);
+
+  box-shadow:
+    0 0 20px var(--pad-color),
+    inset 0 0 15px var(--pad-color);
+
+  color: #ffffff;
 }
 
 .tiles-pad:focus-visible {

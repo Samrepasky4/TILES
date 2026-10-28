@@ -54,12 +54,12 @@ function App() {
   return (
     <>
     <TilesVisualizer />
-
+      <Lighting />
       <Pedal />
       <Cvgate />
       <Expression />
       <Midi />
-      <Lighting />
+      
       <FeaturesHarmonics />
     </>
   )
