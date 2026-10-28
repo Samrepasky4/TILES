@@ -19,6 +19,7 @@ const DEFAULT_LOOK: Record<string, number> = {
   'look.echo_secondary_g_percent': 18,
   'look.echo_secondary_b_percent': 12,
   'look.echo_flash_ms': 180,
+  'look.led_intensity_percent': 100,
 }
 const DEFAULT_PAD_COLORS = Object.fromEntries(
   Array.from({ length: 24 }, (_, i) => [String(i + 1).padStart(2, '0'), 'none']),
@@ -82,6 +83,8 @@ export function TilesVisualizer() {
   const [customPads, setCustomPads] = useState(false)
   const [look, setLook] = useState(DEFAULT_LOOK)
   const [modern, setModern] = useState(false)
+  const [layout, setLayout] = useState('rows')
+  const [effect, setEffect] = useState('off')
   const [scales, setScales] = useState<Scale[]>([])
   const [scaleChoice, setScaleChoice] = useState('chromatic')
   const [activePad, setActivePad] = useState<number | null>(null)
@@ -103,6 +106,8 @@ export function TilesVisualizer() {
           Object.keys(prev).map(pad => [pad, lookup.get(`color.pad.${pad}`) ?? 'none'])
         ))
         setCustomPads(lookup.get('color.custom_pads') === '1')
+        setLayout(lookup.get('layout.melodic') ?? 'rows')
+        setEffect(lookup.get('look.play_effect') ?? 'off')
         setLook(prev => Object.fromEntries(Object.entries(prev).map(([key, value]) =>
           [key, Number(lookup.get(key) ?? value)]
         )))
@@ -125,6 +130,10 @@ export function TilesVisualizer() {
       if (key in DEFAULT_LOOK) {
         const number = Number(value)
         if (Number.isFinite(number)) setLook(prev => ({ ...prev, [key]: number }))
+      } else if (key === 'layout.melodic') {
+        setLayout(value)
+      } else if (key === 'look.play_effect') {
+        setEffect(value)
       } else if (key === 'color.custom_pads') {
         setCustomPads(value === '1')
       } else if (key.startsWith('color.pad.')) {
@@ -194,7 +203,13 @@ export function TilesVisualizer() {
                 ? `#${override}`
                 : modernColor(role, colors)
               : legacyColor(role, look)
-            const color = isActive ? previewColor(previewMode, look) : idle
+            const baseColor = isActive ? previewColor(previewMode, look) : idle
+            const brightness = look['look.led_intensity_percent'] / 100
+            const color = /^#[0-9a-f]{6}$/i.test(baseColor)
+              ? '#' + [1, 3, 5].map(offset => Math.round(
+                  parseInt(baseColor.slice(offset, offset + 2), 16) * brightness,
+                ).toString(16).padStart(2, '0')).join('')
+              : baseColor
             return (
               <button key={pad} type="button"
                 className={`tiles-pad ${isActive ? 'is-active' : ''}`}
@@ -210,8 +225,9 @@ export function TilesVisualizer() {
         </div>
       </div>
       <p className="tiles-preview-note">
-        Visual approximation only: scale selection and pad presses here do not
-        send live MIDI or change the device's active scale.
+        Visual approximation only. Layout setting: {layout}; effect setting: {effect}.
+        Non-row layouts and animated effects are not yet represented geometrically
+        in this preview. Selecting scales or pads here does not send MIDI.
       </p>
     </section>
   )
