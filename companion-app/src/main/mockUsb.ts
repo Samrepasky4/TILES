@@ -27,9 +27,9 @@ export const mockDevice = {
   manufacturerName: 'Sentia Instruments',
 }
 
-const VERSIONS = ['0.2.0', '0.3.6'] as const
+const VERSIONS = ['0.2.0', '0.3.6', 'alpha.6.5'] as const
 type Version = (typeof VERSIONS)[number]
-let firmware: Version = '0.3.6'
+let firmware: Version = 'alpha.6.5'
 let settings = new Map<string, Setting>()
 const scales = new Map<number, Scale>()
 
@@ -38,9 +38,11 @@ const toWire = (value: string | number | boolean) =>
 
 function loadVersion(next: Version) {
   firmware = next
-  const list = next === '0.3.6'
-    ? fixture.settings
-    : [...fixture.settings.filter(s => !s.key.startsWith('color.')), ...fixture.legacySettings]
+  const list = next === 'alpha.6.5'
+    ? [...fixture.settings, ...fixture.alphaSettings]
+    : next === '0.3.6'
+      ? fixture.settings
+      : [...fixture.settings.filter(s => !s.key.startsWith('color.')), ...fixture.legacySettings]
   settings = new Map<string, Setting>(list.map((s): [string, Setting] => [s.key, {
     ...s,
     value: toWire(s.default),
@@ -172,7 +174,7 @@ export async function mockCommand(command: string, _multiLine = false): Promise<
       'power.led_ceiling_percent=50',
       'store.loaded=1',
       'store.pending=0',
-      `content.storage=${firmware === '0.3.6' ? 'ok' : 'none'}`,
+      `content.storage=${firmware !== '0.2.0' ? 'ok' : 'none'}`,
       `content.scales=${scales.size}/9`,
       'drums.storage=mock',
     ]
@@ -212,7 +214,7 @@ export async function mockCommand(command: string, _multiLine = false): Promise<
   if (action === 'REBOOT' && key === 'BOOTSEL')
     return ['ERR unsupported-command']
 
-  if (firmware === '0.3.6') {
+  if (firmware !== '0.2.0') {
     if (action === 'SCALES')
       return [...scales.values()].sort((a, b) => a.slot - b.slot).map(scaleLine)
     if (action === 'SCALE') return handleScale([key, ...rest])
@@ -228,7 +230,7 @@ export async function mockCommand(command: string, _multiLine = false): Promise<
     }
     if (action === 'TEST' && key === 'OFF') return ['OK']
     if (action === 'TEST' && key === 'MODE' &&
-        ['melodic', 'chord', 'sequencer', 'bass', 'song', 'ableton', 'drums'].includes(rest[0]))
+        ['melodic', 'duet', 'sequencer', 'bass', 'song', 'ableton', 'drums', 'volca', 'prism', 'bounce', 'ripples', 'sand', 'orbits', 'cradle'].includes(rest[0]))
       return ['OK']
   }
   return ['ERR unsupported-command']

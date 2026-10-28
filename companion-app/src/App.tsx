@@ -7,6 +7,7 @@ import { Lighting } from './lighting'
 import { FeaturesHarmonics } from './featuresHarmonics'
 import { TilesVisualizer } from './TilesVisualizer'
 import { CustomScales } from './CustomScales'
+import { FirmwareControls } from './FirmwareControls'
 
 const TILES_IDS = [
   [0x1209, 0x0001], // newer firmware
@@ -29,7 +30,7 @@ function App() {
       if (!tiles) throw new Error('SENTIA TILES not found')
       await window.tiles.usb.connect(tiles.vendorId, tiles.productId)
       const info = await window.tiles.usb.command('INFO', true)
-      const firmware = info.find(line => line.startsWith('firmware='))?.slice(9) ?? '0.3.6'
+      const firmware = info.find(line => line.startsWith('firmware='))?.slice(9) ?? 'unknown'
       setSimFirmware(info.includes('simulator=1') ? firmware : null)
       setConnected(true)
     } catch (reason) {
@@ -68,7 +69,8 @@ function App() {
           <label>Simulated firmware{' '}
             <select value={simFirmware} onChange={e => void changeSimFirmware(e.currentTarget.value)}>
               <option value="0.2.0">0.2.0 — legacy</option>
-              <option value="0.3.6">0.3.6 — latest</option>
+              <option value="0.3.6">0.3.6 — main</option>
+              <option value="alpha.6.5">Alpha 6.5 — board-bringup</option>
             </select>
           </label>
           <p>Simulator settings are kept in memory only and reset when the app restarts.
@@ -80,6 +82,7 @@ function App() {
         <TilesVisualizer />
         <Lighting />
         <CustomScales />
+        <FirmwareControls />
         <Pedal />
         <Cvgate />
         <Expression />
