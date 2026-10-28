@@ -1,18 +1,1 @@
-let electron = require("electron");
-//#region src/main/preload.ts
-electron.contextBridge.exposeInMainWorld("tiles", { usb: {
-	list: () => electron.ipcRenderer.invoke("usb:list"),
-	connect: (vendorId, productId) => electron.ipcRenderer.invoke("usb:connect", vendorId, productId),
-	disconnect: () => electron.ipcRenderer.invoke("usb:disconnect"),
-	onChanged: (callback) => {
-		const listener = (_event, devices) => {
-			callback(devices);
-		};
-		electron.ipcRenderer.on("usb:changed", listener);
-		return () => {
-			electron.ipcRenderer.removeListener("usb:changed", listener);
-		};
-	},
-	command: (command, multiLine = false) => electron.ipcRenderer.invoke("usb:command", command, multiLine)
-} });
-//#endregion
+let e=require("electron");e.contextBridge.exposeInMainWorld(`tiles`,{usb:{list:()=>e.ipcRenderer.invoke(`usb:list`),connect:(t,n)=>e.ipcRenderer.invoke(`usb:connect`,t,n),disconnect:()=>e.ipcRenderer.invoke(`usb:disconnect`),onChanged:t=>{let n=(e,n)=>{t(n)};return e.ipcRenderer.on(`usb:changed`,n),()=>{e.ipcRenderer.removeListener(`usb:changed`,n)}},command:(t,n=!1)=>e.ipcRenderer.invoke(`usb:command`,t,n)}});
