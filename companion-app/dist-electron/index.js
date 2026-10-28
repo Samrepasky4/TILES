@@ -116,8 +116,8 @@ function hex(value) {
 	return `0x${value.toString(16).padStart(4, "0")}`;
 }
 var tiles_settings_default = {
-	_comment: "Simulation fixture from the firmware 0.3.6 USB protocol catalog (not a physical device capture). Values are defaults; the mock keeps edits in memory for this session.",
-	firmware: "0.3.6",
+	_comment: "Mock catalog: base v0.3.6 plus 21 alpha.6.5 settings from sentiainstruments/TILES firmware/board-bringup at a52f515fffa0c025c4d7900096920cbb309bc8ea. Not measured against hardware. In-memory simulator; old versions remain selectable.",
+	firmware: "alpha.6.5",
 	settings: [
 		{
 			"id": 256,
@@ -632,6 +632,209 @@ var tiles_settings_default = {
 			"value": 35,
 			"persist": true
 		}
+	],
+	alphaSettings: [
+		{
+			"id": 1033,
+			"key": "look.pressure_hue_degrees",
+			"type": "uint",
+			"default": 40,
+			"value": 40,
+			"persist": true,
+			"min": 0,
+			"max": 90
+		},
+		{
+			"id": 1034,
+			"key": "look.bend_dim_percent",
+			"type": "uint",
+			"default": 50,
+			"value": 50,
+			"persist": true,
+			"min": 0,
+			"max": 90
+		},
+		{
+			"id": 1035,
+			"key": "look.led_intensity_percent",
+			"type": "uint",
+			"default": 100,
+			"value": 100,
+			"persist": true,
+			"min": 0,
+			"max": 100
+		},
+		{
+			"id": 1036,
+			"key": "look.play_effect",
+			"type": "enum",
+			"default": "off",
+			"value": "off",
+			"persist": true,
+			"values": [
+				"off",
+				"afterglow",
+				"ripple",
+				"cross",
+				"halo",
+				"warmth",
+				"prism_ripple",
+				"touch_colour",
+				"heatmap",
+				"fireworks",
+				"rise",
+				"ink"
+			]
+		},
+		{
+			"id": 1281,
+			"key": "midi.clock_lead_ms",
+			"type": "uint",
+			"default": 15,
+			"value": 15,
+			"persist": true,
+			"min": 0,
+			"max": 50
+		},
+		{
+			"id": 1282,
+			"key": "midi.parts_port",
+			"type": "enum",
+			"default": "parts",
+			"value": "parts",
+			"persist": true,
+			"values": ["parts", "main"]
+		},
+		{
+			"id": 2048,
+			"key": "modes.duet",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2049,
+			"key": "modes.sequencer",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2050,
+			"key": "modes.drums",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2051,
+			"key": "modes.song",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2052,
+			"key": "modes.prism",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2053,
+			"key": "modes.bass",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2054,
+			"key": "modes.ableton",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2055,
+			"key": "modes.volca",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2056,
+			"key": "modes.bounce",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2057,
+			"key": "modes.cradle",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2058,
+			"key": "modes.sand",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2059,
+			"key": "modes.ripples",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2060,
+			"key": "modes.orbits",
+			"type": "bool",
+			"default": true,
+			"value": true,
+			"persist": true
+		},
+		{
+			"id": 2304,
+			"key": "layout.melodic",
+			"type": "enum",
+			"default": "rows",
+			"value": "rows",
+			"persist": true,
+			"values": [
+				"rows",
+				"columns",
+				"fourths",
+				"keys",
+				"fifths",
+				"tonnetz",
+				"quarter_tones"
+			]
+		},
+		{
+			"id": 2560,
+			"key": "seq.lock",
+			"type": "enum",
+			"default": "off",
+			"value": "off",
+			"persist": true,
+			"values": ["off", "bar"]
+		}
 	]
 };
 //#endregion
@@ -642,14 +845,18 @@ var mockDevice = {
 	productName: "SENTIA TILES (Simulator)",
 	manufacturerName: "Sentia Instruments"
 };
-var VERSIONS = ["0.2.0", "0.3.6"];
-var firmware = "0.3.6";
+var VERSIONS = [
+	"0.2.0",
+	"0.3.6",
+	"alpha.6.5"
+];
+var firmware = "alpha.6.5";
 var settings = /* @__PURE__ */ new Map();
 var scales = /* @__PURE__ */ new Map();
 var toWire = (value) => typeof value === "boolean" ? value ? "1" : "0" : String(value);
 function loadVersion(next) {
 	firmware = next;
-	const list = next === "0.3.6" ? tiles_settings_default.settings : [...tiles_settings_default.settings.filter((s) => !s.key.startsWith("color.")), ...tiles_settings_default.legacySettings];
+	const list = next === "alpha.6.5" ? [...tiles_settings_default.settings, ...tiles_settings_default.alphaSettings] : next === "0.3.6" ? tiles_settings_default.settings : [...tiles_settings_default.settings.filter((s) => !s.key.startsWith("color.")), ...tiles_settings_default.legacySettings];
 	settings = new Map(list.map((s) => [s.key, {
 		...s,
 		value: toWire(s.default)
@@ -773,7 +980,7 @@ async function mockCommand(command, _multiLine = false) {
 		"power.led_ceiling_percent=50",
 		"store.loaded=1",
 		"store.pending=0",
-		`content.storage=${firmware === "0.3.6" ? "ok" : "none"}`,
+		`content.storage=${firmware !== "0.2.0" ? "ok" : "none"}`,
 		`content.scales=${scales.size}/9`,
 		"drums.storage=mock"
 	];
@@ -808,7 +1015,7 @@ async function mockCommand(command, _multiLine = false) {
 		return ["OK"];
 	}
 	if (action === "REBOOT" && key === "BOOTSEL") return ["ERR unsupported-command"];
-	if (firmware === "0.3.6") {
+	if (firmware !== "0.2.0") {
 		if (action === "SCALES") return [...scales.values()].sort((a, b) => a.slot - b.slot).map(scaleLine);
 		if (action === "SCALE") return handleScale([key, ...rest]);
 		if (action === "CONTENT" && key === "LIST") return [...scales.values()].sort((a, b) => a.slot - b.slot).map((s) => {
@@ -822,12 +1029,19 @@ async function mockCommand(command, _multiLine = false) {
 		if (action === "TEST" && key === "OFF") return ["OK"];
 		if (action === "TEST" && key === "MODE" && [
 			"melodic",
-			"chord",
+			"duet",
 			"sequencer",
 			"bass",
 			"song",
 			"ableton",
-			"drums"
+			"drums",
+			"volca",
+			"prism",
+			"bounce",
+			"ripples",
+			"sand",
+			"orbits",
+			"cradle"
 		].includes(rest[0])) return ["OK"];
 	}
 	return ["ERR unsupported-command"];
