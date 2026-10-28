@@ -4,9 +4,14 @@ export function useTilesSettings(keys: Record<string, string>) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
 
+  // Keys are often constructed inline by pages. Depend on their contents,
+  // not object identity, to avoid re-fetch loops on every state update.
+  const keySignature = JSON.stringify(keys)
+
   useEffect(() => {
     let cancelled = false
-    void Promise.all(Object.entries(keys).map(async ([name, key]) => {
+    const requestedKeys = JSON.parse(keySignature) as Record<string, string>
+    void Promise.all(Object.entries(requestedKeys).map(async ([name, key]) => {
       try {
         const [value] = await window.tiles.usb.command(`GET ${key}`)
         if (cancelled) return
@@ -20,7 +25,7 @@ export function useTilesSettings(keys: Record<string, string>) {
       }
     }))
     return () => { cancelled = true }
-  }, [keys])
+  }, [keySignature])
 
   async function update(name: string, value: string) {
     const key = keys[name]
