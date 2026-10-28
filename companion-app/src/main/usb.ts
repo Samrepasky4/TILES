@@ -1,46 +1,9 @@
+
 import { usb } from 'usb'
 
-type UsbDevice = {
-  vendorId: number
-  productId: number
-  productName?: string | null
-  manufacturerName?: string | null
-  serialNumber?: string | null
-  configuration?: {
-    interfaces: {
-      interfaceNumber: number
-      alternate: {
-        interfaceClass: number
-        interfaceName?: string | null
-        endpoints: {
-          direction: 'in' | 'out'
-          endpointNumber: number
-        }[]
-      }
-    }[]
-  } | null
-
-  open(): Promise<void>
-  close(): Promise<void>
-  claimInterface(interfaceNumber: number): Promise<void>
-  releaseInterface(interfaceNumber: number): Promise<void>
-
-  transferIn(
-    endpointNumber: number,
-    length: number,
-  ): Promise<{
-    data?: DataView
-    status: 'ok' | 'stall' | 'babble'
-  }>
-
-  transferOut(
-    endpointNumber: number,
-    data: BufferSource,
-  ): Promise<{
-    bytesWritten?: number
-    status: 'ok' | 'stall'
-  }>
-}
+type UsbDevice = NonNullable<
+  Awaited<ReturnType<typeof usb.findDeviceByIds>>
+>
 
 export type UsbDeviceInfo = {
   vendorId: number
@@ -75,7 +38,10 @@ export async function connectUsbDevice(
 ) {
   await disconnectUsbDevice()
 
-  const device = await usb.findDeviceByIds(vendorId, productId)
+  const device = await usb.findDeviceByIds(
+    vendorId,
+    productId,
+  )
 
   if (!device) {
     throw new Error(
@@ -140,7 +106,9 @@ export async function disconnectUsbDevice() {
       }
 
       await activeDevice.close()
-    } catch {}
+    } catch (error) {
+      console.warn('USB disconnect error:', error)
+    }
   }
 
   activeDevice = null
@@ -158,10 +126,15 @@ async function readLine(): Promise<string> {
   }
 
   while (!receiveBuffer.includes('\n')) {
-    const result = await activeDevice.transferIn(controlIn, 64)
+    const result = await activeDevice.transferIn(
+      controlIn,
+      64,
+    )
 
     if (result.status !== 'ok' || !result.data) {
-      throw new Error(`USB read failed: ${result.status}`)
+      throw new Error(
+        `USB read failed: ${result.status}`,
+      )
     }
 
     const data = new Uint8Array(
@@ -184,11 +157,13 @@ async function readLine(): Promise<string> {
   return line
 }
 
-/*
- * Public function.
+/**
+ * Public command function.
  *
- * Every call gets placed behind the previous command so two React
- * components can never talk to the USB endpoint at the same time.
+ * Serializes all USB commands so multiple React components
+ * cannot send overlapping requests to the instrument.
+ *
+ * Each command waits for the previous command to finish.
  */
 export function sendTilesCommand(
   command: string,
@@ -198,7 +173,7 @@ export function sendTilesCommand(
     sendTilesCommandNow(command, multiLine),
   )
 
-  // Keep the queue alive even if one command fails.
+  // A failed command must not permanently block the queue.
   commandQueue = result.then(
     () => undefined,
     () => undefined,
@@ -207,9 +182,10 @@ export function sendTilesCommand(
   return result
 }
 
-/*
- * Actually performs one complete USB request/response transaction.
- * This function is only called by the queue above.
+/**
+ * Performs one complete USB request/response transaction.
+ *
+ * Called only from the command queue.
  */
 async function sendTilesCommandNow(
   command: string,
@@ -227,7 +203,9 @@ async function sendTilesCommandNow(
   )
 
   if (write.status !== 'ok') {
-    throw new Error(`USB write failed: ${write.status}`)
+    throw new Error(
+      `USB write failed: ${write.status}`,
+    )
   }
 
   const lines: string[] = []
@@ -237,12 +215,14 @@ async function sendTilesCommandNow(
 
     console.log(`← TILES: ${line}`)
 
+    // Multiline responses end with OK.
     if (multiLine && line === 'OK') {
       return lines
     }
 
     lines.push(line)
 
+    // Single-line response or error ends the transaction.
     if (!multiLine || line.startsWith('ERR ')) {
       return lines
     }
