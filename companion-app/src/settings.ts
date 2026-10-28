@@ -13,11 +13,38 @@ export function useTilesSettings(keys: Record<string, string>) {
   }, [])
 
   async function update(name: string, value: string) {
-    const [response] = await window.tiles.usb.command(`SET ${keys[name]} ${value}`)
-    if (response !== 'OK') return setError(`${keys[name]}: ${response}`)
-    setValues(v => ({ ...v, [name]: value }))
+  const key = keys[name]
+
+  try {
+    const [response] = await window.tiles.usb.command(
+      `SET ${key} ${value}`
+    )
+
+    if (response !== 'OK') {
+      setError(`${key}: ${response}`)
+      return
+    }
+
+    setValues(prev => ({
+      ...prev,
+      [name]: value,
+    }))
+
+    // Notify the instrument visualizer
+    window.dispatchEvent(
+      new CustomEvent('tiles:setting-changed', {
+        detail: {
+          key,
+          value,
+        },
+      })
+    )
+
     setError('')
+  } catch (err) {
+    setError(String(err))
   }
+}
 
   return { values, update, error }
 }
