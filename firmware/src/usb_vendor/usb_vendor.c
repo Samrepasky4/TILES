@@ -1,12 +1,20 @@
 #include "usb_vendor.h"
 
 #include "board/unit_id.h"
+#include "content.h"
+#include "diagnostics/loop_stats.h"
+#include "drum_seq.h"
+#include "hall.h"
 #include "haptics.h"
 #include "lighting.h"
+#include "note_map.h"
+#include "op_mode.h"
+#include "play_state.h"
 #include "power.h"
 #include "product_identity.h"
 #include "settings.h"
 #include "settings_persist.h"
+#include "touch.h"
 
 #include "tusb.h"
 
@@ -14,6 +22,7 @@
 #include "pico/bootrom.h"
 #include "pico/time.h"
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,17 +31,41 @@
 #define USB_VENDOR_LINE_MAX 128u
 
 /* Replies are queued here and drained into the 64-byte TinyUSB FIFO as it
- * has room (pump_out()), so multi-line replies (LIST/SCHEMA/INFO) never
- * lose their tail. SCHEMA, the largest (~3 KB), fits whole: the next
- * command is read only once the previous reply is fully sent. */
+ * has room (pump_out()); the next command is read only once the previous
+ * reply is fully sent. Listings that can outgrow it (LIST, SCHEMA -- ~5 KB
+ * with the colour rows -- SCALES, CONTENT LIST) are streamed instead: rows
+ * are added as the buffer drains (fill_listing()), so their size is
+ * unbounded. Single replies (INFO, ~1 KB) are built whole. */
 #define USB_VENDOR_OUT_MAX 4096u
 
 static char s_rx_line[USB_VENDOR_LINE_MAX];
 static size_t s_rx_len;
 
+/* A partial line (no newline yet) is dropped once nothing has arrived for
+ * this long while the device waits for input. A host that gave up
+ * mid-write (a batch that timed out, an app quitting) would otherwise glue
+ * its tail onto the next session's first command. A real command arrives
+ * in one write, far quicker. */
+#define USB_VENDOR_PARTIAL_LINE_MS 1000u
+static uint32_t s_rx_idle_since_ms;
+
+/* Request tags: a command line may start with "@<tag> " (1-16 of
+ * A-Z a-z 0-9 _ -), and then every line of its reply starts with the same
+ * "@<tag> ". A host can then keep several commands in flight and match
+ * each line to its request, and skip lines left over from an earlier
+ * session (a reply still streaming when the last app quit). Untagged
+ * commands are answered untagged, as always. */
+#define USB_VENDOR_TAG_MAX 16u
+static char s_tag[USB_VENDOR_TAG_MAX + 3u]; /* "@" tag " " NUL; empty = untagged */
+
 static char s_out[USB_VENDOR_OUT_MAX];
 static size_t s_out_len;  /* bytes queued */
 static size_t s_out_sent; /* of those, bytes already handed to TinyUSB */
+
+/* The listing being streamed, and the next row/slot to produce. */
+typedef enum { LISTING_NONE = 0, LISTING_SETTINGS, LISTING_SCHEMA, LISTING_SCALES, LISTING_CONTENT } listing_t;
+static listing_t s_listing;
+static size_t s_listing_next;
 
 static void out_append(const char *text) {
     size_t n = strlen(text);
@@ -46,6 +79,7 @@ static void out_append(const char *text) {
 }
 
 static void reply(const char *text) {
+    out_append(s_tag);
     out_append(text);
     out_append("\n");
 }
@@ -55,7 +89,7 @@ static void reply_ok(void) {
 }
 
 static void reply_err(const char *reason) {
-    char buf[64];
+    char buf[USB_VENDOR_LINE_MAX];
     snprintf(buf, sizeof(buf), "ERR %s", reason);
     reply(buf);
 }
@@ -103,33 +137,310 @@ static const char *kv_result_name(tiles_kv_result_t r) {
     return "unknown";
 }
 
+/* "0,2,3,7,8" -- the form SCALE PUT takes and SCALES prints. */
+static void format_intervals(const int8_t *intervals, uint8_t count, char *out, size_t cap) {
+    size_t at = 0u;
+    out[0] = '\0';
+    for (uint8_t i = 0u; i < count && at < cap; i++) {
+        int n = snprintf(&out[at], cap - at, i == 0u ? "%d" : ",%d", (int)intervals[i]);
+        if (n < 0) {
+            break;
+        }
+        at += (size_t)n;
+    }
+}
+
+static bool parse_intervals(char *text, int8_t *out, uint8_t *count) {
+    *count = 0u;
+    for (char *tok = strtok(text, ","); tok != NULL; tok = strtok(NULL, ",")) {
+        char *end;
+        long v = strtol(tok, &end, 10);
+        if (*tok == '\0' || *end != '\0' || v < 0 || v > 11 || *count >= TILES_NOTE_MAP_MAX_SCALE_NOTES) {
+            return false;
+        }
+        out[(*count)++] = (int8_t)v;
+    }
+    return *count > 0u;
+}
+
+/* One SCALES row: "<slot> <name> <intervals> [pack=..] [item=..] version=N",
+ * which is exactly SCALE PUT's arguments, so a pulled scale pushes back. */
+static void format_scale(const tiles_content_scale_t *s, char *out, size_t cap) {
+    char intervals[40];
+    format_intervals(s->intervals, s->count, intervals, sizeof(intervals));
+    int n = snprintf(out, cap, "%u %s %s", (unsigned)s->slot, s->name, intervals);
+    if (n > 0 && (size_t)n < cap && s->pack[0] != '\0') {
+        n += snprintf(&out[n], cap - (size_t)n, " pack=%s", s->pack);
+    }
+    if (n > 0 && (size_t)n < cap && s->item[0] != '\0') {
+        n += snprintf(&out[n], cap - (size_t)n, " item=%s", s->item);
+    }
+    if (n > 0 && (size_t)n < cap) {
+        snprintf(&out[n], cap - (size_t)n, " version=%u", (unsigned)s->version);
+    }
+}
+
+/* Produces the current listing's next row into `text`; false when done. */
+static bool listing_row(char *text, size_t cap) {
+    switch (s_listing) {
+    case LISTING_SETTINGS:
+        if (s_listing_next < tiles_settings_count()) {
+            const tiles_setting_def_t *def = tiles_settings_at(s_listing_next++);
+            char value[48];
+            tiles_settings_format(def, def->get(), value, sizeof(value));
+            snprintf(text, cap, "%s=%s", def->key, value);
+            return true;
+        }
+        return false;
+    case LISTING_SCHEMA:
+        if (s_listing_next < tiles_settings_count()) {
+            tiles_settings_describe(tiles_settings_at(s_listing_next++), text, cap);
+            return true;
+        }
+        return false;
+    case LISTING_SCALES:
+        while (s_listing_next < TILES_NOTE_MAP_NUM_CUSTOM_SCALES) {
+            tiles_content_scale_t s;
+            if (tiles_content_get_scale((uint8_t)(++s_listing_next), &s)) {
+                format_scale(&s, text, cap);
+                return true;
+            }
+        }
+        return false;
+    case LISTING_CONTENT: {
+        tiles_content_record_t r;
+        if (!tiles_content_record_at(s_listing_next++, &r)) {
+            return false;
+        }
+        if (r.type == TILES_CONTENT_TYPE_SCALE) {
+            int n = snprintf(text, cap, "scale %u bytes=%u version=%u", (unsigned)r.slot, (unsigned)r.bytes,
+                             (unsigned)r.version);
+            if (n > 0 && (size_t)n < cap && r.pack[0] != '\0') {
+                n += snprintf(&text[n], cap - (size_t)n, " pack=%s", r.pack);
+            }
+            if (n > 0 && (size_t)n < cap && r.item[0] != '\0') {
+                snprintf(&text[n], cap - (size_t)n, " item=%s", r.item);
+            }
+        } else {
+            snprintf(text, cap, "type%u %u bytes=%u", (unsigned)r.type, (unsigned)r.slot, (unsigned)r.bytes);
+        }
+        return true;
+    }
+    case LISTING_NONE:
+    default:
+        return false;
+    }
+}
+
+/* Adds listing rows while there's room for another full line, then "OK"
+ * when the listing runs out. */
+static void fill_listing(void) {
+    char text[USB_VENDOR_LINE_MAX];
+    while (s_listing != LISTING_NONE && sizeof(s_out) - s_out_len > USB_VENDOR_LINE_MAX + sizeof(s_tag) + 4u) {
+        if (listing_row(text, sizeof(text))) {
+            reply(text);
+        } else {
+            reply_ok();
+            s_listing = LISTING_NONE;
+        }
+    }
+}
+
+static void start_listing(listing_t kind) {
+    s_listing = kind;
+    s_listing_next = 0u;
+    fill_listing();
+}
+
+static void reply_content_result(tiles_content_result_t r) {
+    char text[48];
+    switch (r) {
+    case TILES_CONTENT_OK:
+        reply_ok();
+        return;
+    case TILES_CONTENT_BAD_SLOT:
+        reply_err("bad-slot");
+        return;
+    case TILES_CONTENT_BAD_INTERVALS:
+        reply_err("bad-intervals");
+        return;
+    case TILES_CONTENT_BAD_TEXT:
+        reply_err("bad-name");
+        return;
+    case TILES_CONTENT_FULL:
+        reply_err("content-full");
+        return;
+    case TILES_CONTENT_NEWER_FORMAT:
+        reply_err("newer-format");
+        return;
+    case TILES_CONTENT_NO_STORAGE:
+        reply_err("no-storage");
+        return;
+    case TILES_CONTENT_SAVE_FAILED:
+        snprintf(text, sizeof(text), "save-failed-%s", kv_result_name(tiles_content_get_info().kv.last_result));
+        reply_err(text);
+        return;
+    }
+    reply_err("unknown");
+}
+
+static uint8_t parse_slot(const char *text) {
+    if (text == NULL) {
+        return 0u;
+    }
+    char *end;
+    long v = strtol(text, &end, 10);
+    return (*text != '\0' && *end == '\0' && v >= 1 && v <= (long)TILES_NOTE_MAP_NUM_CUSTOM_SCALES) ? (uint8_t)v : 0u;
+}
+
+/* SCALE PUT <slot> <name> <intervals> [pack=<id>] [item=<id>] [version=<n>]
+ * SCALE GET <slot> | SCALE DELETE <slot> */
+static void handle_scale(void) {
+    char *what = strtok(NULL, " ");
+    if (what == NULL) {
+        reply_err("missing-key");
+        return;
+    }
+    if (strcmp(what, "GET") == 0) {
+        tiles_content_scale_t s;
+        uint8_t slot = parse_slot(strtok(NULL, " "));
+        if (slot == 0u) {
+            reply_err("bad-slot");
+        } else if (!tiles_content_get_scale(slot, &s)) {
+            reply_err("empty");
+        } else {
+            char text[USB_VENDOR_LINE_MAX];
+            format_scale(&s, text, sizeof(text));
+            reply(text);
+            reply_ok();
+        }
+        return;
+    }
+    if (strcmp(what, "DELETE") == 0) {
+        uint8_t slot = parse_slot(strtok(NULL, " "));
+        reply_content_result(slot == 0u ? TILES_CONTENT_BAD_SLOT : tiles_content_delete_scale(slot));
+        return;
+    }
+    if (strcmp(what, "PUT") != 0) {
+        reply_err("unknown-key");
+        return;
+    }
+    tiles_content_scale_t s;
+    memset(&s, 0, sizeof(s));
+    s.slot = parse_slot(strtok(NULL, " "));
+    char *name = strtok(NULL, " ");
+    char *intervals = strtok(NULL, " ");
+    if (s.slot == 0u) {
+        reply_err("bad-slot");
+        return;
+    }
+    if (name == NULL || strlen(name) > TILES_CONTENT_TEXT_MAX) {
+        reply_err("bad-name");
+        return;
+    }
+    strcpy(s.name, name);
+    /* Optional fields first (strtok can't be nested: parse_intervals uses it). */
+    for (char *field = strtok(NULL, " "); field != NULL; field = strtok(NULL, " ")) {
+        char *value = strchr(field, '=');
+        if (value == NULL) {
+            reply_err("bad-field");
+            return;
+        }
+        *value++ = '\0';
+        if ((strcmp(field, "pack") == 0 || strcmp(field, "item") == 0) && strlen(value) <= TILES_CONTENT_TEXT_MAX) {
+            strcpy(strcmp(field, "pack") == 0 ? s.pack : s.item, value);
+        } else if (strcmp(field, "version") == 0) {
+            char *end;
+            long v = strtol(value, &end, 10);
+            if (*value == '\0' || *end != '\0' || v < 0 || v > 65535) {
+                reply_err("bad-field");
+                return;
+            }
+            s.version = (uint16_t)v;
+        } else {
+            reply_err("bad-field");
+            return;
+        }
+    }
+    if (intervals == NULL || !parse_intervals(intervals, s.intervals, &s.count)) {
+        reply_err("bad-intervals");
+        return;
+    }
+    reply_content_result(tiles_content_put_scale(&s));
+}
+
+/* Takes a leading "@<tag> " off `line` into s_tag (cleared when there's
+ * none). False for a malformed tag. */
+static bool take_tag(char **line) {
+    s_tag[0] = '\0';
+    if ((*line)[0] != '@') {
+        return true;
+    }
+    size_t n = strcspn(*line + 1, " ");
+    if (n == 0u || n > USB_VENDOR_TAG_MAX) {
+        return false;
+    }
+    for (size_t i = 1u; i <= n; i++) {
+        char c = (*line)[i];
+        if (!isalnum((unsigned char)c) && c != '_' && c != '-') {
+            return false;
+        }
+    }
+    memcpy(s_tag, *line, n + 1u);
+    s_tag[n + 1u] = ' ';
+    s_tag[n + 2u] = '\0';
+    *line += n + 1u;
+    return true;
+}
+
 static void handle_line(char *line) {
+    if (!take_tag(&line)) {
+        reply_err("bad-tag");
+        return;
+    }
     char *cmd = strtok(line, " ");
     if (cmd == NULL) {
+        if (s_tag[0] != '\0') {
+            reply_err("missing-command"); /* a tagged request always gets an answer */
+        }
         return; /* blank line: no reply, like a terminal */
     }
     char text[USB_VENDOR_LINE_MAX];
 
     if (strcmp(cmd, "LIST") == 0) {
-        for (size_t i = 0; i < tiles_settings_count(); i++) {
-            const tiles_setting_def_t *def = tiles_settings_at(i);
-            char value[48];
-            tiles_settings_format(def, def->get(), value, sizeof(value));
-            snprintf(text, sizeof(text), "%s=%s", def->key, value);
-            reply(text);
-        }
-        reply_ok();
+        start_listing(LISTING_SETTINGS);
         return;
     }
 
     /* One line per setting (id, key, type, range/values, default): enough for
      * a UI to build a control without a hard-coded list. */
     if (strcmp(cmd, "SCHEMA") == 0) {
-        for (size_t i = 0; i < tiles_settings_count(); i++) {
-            tiles_settings_describe(tiles_settings_at(i), text, sizeof(text));
-            reply(text);
+        start_listing(LISTING_SCHEMA);
+        return;
+    }
+
+    /* Custom scales (profiles/content.h): SCALES lists the filled slots, one
+     * SCALE PUT-shaped line each; SCALE GET/PUT/DELETE edit one slot. */
+    if (strcmp(cmd, "SCALES") == 0) {
+        start_listing(LISTING_SCALES);
+        return;
+    }
+    if (strcmp(cmd, "SCALE") == 0) {
+        handle_scale();
+        return;
+    }
+
+    /* CONTENT LIST: every record in the content store (packs show here);
+     * CONTENT CLEAR: wipe it (all custom scales, everything). */
+    if (strcmp(cmd, "CONTENT") == 0) {
+        char *what = strtok(NULL, " ");
+        if (what != NULL && strcmp(what, "LIST") == 0) {
+            start_listing(LISTING_CONTENT);
+        } else if (what != NULL && strcmp(what, "CLEAR") == 0) {
+            reply_content_result(tiles_content_clear());
+        } else {
+            reply_err(what == NULL ? "missing-key" : "unknown-key");
         }
-        reply_ok();
         return;
     }
 
@@ -138,8 +449,12 @@ static void handle_line(char *line) {
         tiles_settings_persist_info_t info = tiles_settings_persist_get_info();
         snprintf(text, sizeof(text), "unit=%u/%u", (unsigned)TILES_UNIT_NUMBER, (unsigned)TILES_UNIT_COUNT);
         reply(text);
-        snprintf(text, sizeof(text), "firmware=%u.%u.%u", (unsigned)TILES_FW_VERSION_MAJOR,
-                 (unsigned)TILES_FW_VERSION_MINOR, (unsigned)TILES_FW_VERSION_PATCH);
+        if (TILES_FW_POINT == 0u) {
+            snprintf(text, sizeof(text), "firmware=%s.%u", TILES_FW_STAGE_NAME, (unsigned)TILES_FW_BUILD);
+        } else {
+            snprintf(text, sizeof(text), "firmware=%s.%u.%u", TILES_FW_STAGE_NAME, (unsigned)TILES_FW_BUILD,
+                     (unsigned)TILES_FW_POINT);
+        }
         reply(text);
         snprintf(text, sizeof(text), "settings=%u", (unsigned)tiles_settings_count());
         reply(text);
@@ -170,6 +485,77 @@ static void handle_line(char *line) {
         snprintf(text, sizeof(text), "store.pending=%d", info.pending ? 1 : 0);
         reply(text);
         snprintf(text, sizeof(text), "store.failures=%lu", (unsigned long)info.save_failures);
+        reply(text);
+        tiles_content_info_t content = tiles_content_get_info();
+        snprintf(text, sizeof(text), "content.storage=%s",
+                 !content.storage ? "none" : (content.newer_format ? "newer-format" : "ok"));
+        reply(text);
+        snprintf(text, sizeof(text), "content.scales=%u/%u", (unsigned)content.scales,
+                 (unsigned)TILES_NOTE_MAP_NUM_CUSTOM_SCALES);
+        reply(text);
+        snprintf(text, sizeof(text), "content.records=%u", (unsigned)content.records);
+        reply(text);
+        snprintf(text, sizeof(text), "content.bytes=%u/%u", (unsigned)content.used_bytes,
+                 (unsigned)content.capacity_bytes);
+        reply(text);
+        snprintf(text, sizeof(text), "content.writes=%lu", (unsigned long)content.kv.writes);
+        reply(text);
+        snprintf(text, sizeof(text), "content.last_result=%s", kv_result_name(content.kv.last_result));
+        reply(text);
+        tiles_loop_stats_t loop = tiles_loop_stats_get();
+        snprintf(text, sizeof(text), "loop.avg_us=%lu", (unsigned long)loop.avg_us);
+        reply(text);
+        snprintf(text, sizeof(text), "loop.max_us=%lu", (unsigned long)loop.max_us);
+        reply(text);
+        snprintf(text, sizeof(text), "loop.max_ever_us=%lu", (unsigned long)loop.max_ever_us);
+        reply(text);
+        tiles_hall_rest_info_t rest = tiles_hall_get_rest_info();
+        snprintf(text, sizeof(text), "hall.rezeros=%lu", (unsigned long)rest.rezeros);
+        reply(text);
+        snprintf(text, sizeof(text), "hall.unconfirmed=%u", (unsigned)rest.unconfirmed);
+        reply(text);
+        snprintf(text, sizeof(text), "hall.reinits=%lu", (unsigned long)rest.reinits);
+        reply(text);
+        snprintf(text, sizeof(text), "hall.dead=%u", (unsigned)rest.dead);
+        reply(text);
+        tiles_touch_info_t touch = tiles_touch_get_info();
+        snprintf(text, sizeof(text), "touch.recoveries=%lu", (unsigned long)touch.recoveries);
+        reply(text);
+        snprintf(text, sizeof(text), "boot.ms=%lu", (unsigned long)loop.boot_ms);
+        reply(text);
+        snprintf(text, sizeof(text), "boot.sensors_ms=%lu", (unsigned long)rest.boot_ms);
+        reply(text);
+        tiles_op_mode_seq_store_info_t seq = tiles_op_mode_get_seq_store_info();
+        snprintf(text, sizeof(text), "seq.storage=%s", seq.storage ? "ok" : "none");
+        reply(text);
+        snprintf(text, sizeof(text), "seq.saved_bytes=%u", (unsigned)seq.saved_bytes);
+        reply(text);
+        snprintf(text, sizeof(text), "seq.saves=%lu", (unsigned long)seq.saves);
+        reply(text);
+        snprintf(text, sizeof(text), "seq.pending=%d", seq.pending ? 1 : 0);
+        reply(text);
+        snprintf(text, sizeof(text), "seq.truncated=%d", seq.truncated ? 1 : 0);
+        reply(text);
+        tiles_drum_seq_store_info_t drums = tiles_drum_seq_get_store_info();
+        snprintf(text, sizeof(text), "drums.storage=%s", drums.storage ? "ok" : "none");
+        reply(text);
+        snprintf(text, sizeof(text), "drums.saved_bytes=%u", (unsigned)drums.saved_bytes);
+        reply(text);
+        snprintf(text, sizeof(text), "drums.saves=%lu", (unsigned long)drums.saves);
+        reply(text);
+        snprintf(text, sizeof(text), "drums.pending=%d", drums.pending ? 1 : 0);
+        reply(text);
+        tiles_play_state_info_t play = tiles_play_state_get_info();
+        snprintf(text, sizeof(text), "state.storage=%s", play.storage ? "ok" : "none");
+        reply(text);
+        if (play.have_saved) {
+            snprintf(text, sizeof(text), "state.saved=mode:%u scale:%u octave:%d key:%d", (unsigned)play.mode,
+                     (unsigned)play.scale, (int)play.octave, (int)play.key);
+            reply(text);
+        }
+        snprintf(text, sizeof(text), "state.saves=%lu", (unsigned long)play.saves);
+        reply(text);
+        snprintf(text, sizeof(text), "state.pending=%d", play.pending ? 1 : 0);
         reply(text);
         reply_ok();
         return;
@@ -213,7 +599,16 @@ static void handle_line(char *line) {
             reply_ok();
             return;
         }
-        reply_err("usage-TEST-LEDS-n|MOTORS-n-[duty]|OFF");
+        if (what != NULL && strcmp(what, "MODE") == 0 && arg != NULL) {
+            /* Switch mode without the pads (loop-timing checks per mode). */
+            if (tiles_op_mode_test_set_mode(arg)) {
+                reply_ok();
+            } else {
+                reply_err("mode-melodic|duet|sequencer|bass|song|ableton|drums|volca|prism|bounce|ripples|sand|orbits|cradle");
+            }
+            return;
+        }
+        reply_err("usage-TEST-LEDS-n|MOTORS-n-[duty]|MODE-name|OFF");
         return;
     }
 
@@ -233,27 +628,35 @@ static void handle_line(char *line) {
     /* REBOOT BOOTSEL | APP: the scriptable path. (picotool's -f uses the
      * standard USB reset interface instead; see tusb_config.h.)
      *
-     * BOOTSEL enters the ROM USB bootloader. reset_usb_boot() never returns,
-     * so the "OK" is flushed by hand first, with a bounded wait (pump_out()
-     * alone only reaches the peripheral FIFO, not the host). No activity LED
-     * is wired, hence the 0 arguments.
+     * Both flush the "OK" by hand first, with a bounded wait (pump_out()
+     * alone only reaches the peripheral FIFO, not the host).
      *
-     * APP is a warm restart into this firmware (to test a fresh boot, or to
-     * unstick a non-USB subsystem). watchdog_reboot() returns right away, so
-     * the reply goes out during the delay like any other. */
+     * BOOTSEL enters the ROM USB bootloader (reset_usb_boot() never
+     * returns). No activity LED is wired, hence the 0 arguments.
+     *
+     * APP is a warm restart into this firmware, booting as from power-on
+     * (not a crash recovery: watchdog_reboot() clears the marker that
+     * watchdog_enable_caused_reboot() reads), to test a fresh boot or
+     * unstick a non-USB subsystem. It must not return to the main loop:
+     * that feeds the watchdog every pass, which kept a delayed reboot from
+     * ever firing. */
     if (strcmp(cmd, "REBOOT") == 0) {
         char *what = strtok(NULL, " ");
-        if (what != NULL && strcmp(what, "BOOTSEL") == 0) {
+        bool bootsel = what != NULL && strcmp(what, "BOOTSEL") == 0;
+        if (bootsel || (what != NULL && strcmp(what, "APP") == 0)) {
             reply_ok();
             uint32_t deadline_ms = to_ms_since_boot(get_absolute_time()) + 50u;
             while (to_ms_since_boot(get_absolute_time()) < deadline_ms) {
                 tud_task();
                 pump_out();
             }
-            reset_usb_boot(0, 0);
-        } else if (what != NULL && strcmp(what, "APP") == 0) {
-            watchdog_reboot(0, 0, 100u);
-            reply_ok();
+            if (bootsel) {
+                reset_usb_boot(0, 0);
+            }
+            watchdog_reboot(0, 0, 1u);
+            while (true) {
+                tight_loop_contents(); /* not fed: resets within 1 ms */
+            }
         } else {
             reply_err(what == NULL ? "missing-key" : "unknown-key");
         }
@@ -310,6 +713,8 @@ static void handle_line(char *line) {
 }
 
 void tiles_usb_vendor_init(void) {
+    s_listing = LISTING_NONE;
+    s_tag[0] = '\0';
     s_rx_len = 0u;
     s_out_len = 0u;
     s_out_sent = 0u;
@@ -319,10 +724,18 @@ void tiles_usb_vendor_scan(void) {
     if (!tud_vendor_mounted()) {
         s_out_len = 0u; /* host gone: drop the reply rather than hand it to the next host */
         s_out_sent = 0u;
+        s_listing = LISTING_NONE;
+        s_rx_len = 0u;
         return;
     }
     pump_out();
-    if (s_out_len > 0u) {
+    if (s_out_len == 0u && s_listing != LISTING_NONE) {
+        fill_listing(); /* buffer drained: the listing's next rows */
+        pump_out();
+    }
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    if (s_out_len > 0u || s_listing != LISTING_NONE) {
+        s_rx_idle_since_ms = now_ms; /* not reading: no partial-line timeout */
         return; /* still sending the previous reply: wait before the next command */
     }
     while (tud_vendor_available()) {
@@ -330,6 +743,7 @@ void tiles_usb_vendor_scan(void) {
         if (tud_vendor_read(&byte, 1) == 0) {
             break;
         }
+        s_rx_idle_since_ms = now_ms;
         if (byte == '\n' || byte == '\r') {
             if (s_rx_len > 0u) {
                 s_rx_line[s_rx_len] = '\0';
@@ -345,5 +759,8 @@ void tiles_usb_vendor_scan(void) {
         }
         /* Line longer than USB_VENDOR_LINE_MAX: drop bytes until the next
          * newline. No real command comes close, so it is malformed anyway. */
+    }
+    if (s_rx_len > 0u && now_ms - s_rx_idle_since_ms > USB_VENDOR_PARTIAL_LINE_MS) {
+        s_rx_len = 0u;
     }
 }

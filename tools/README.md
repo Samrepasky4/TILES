@@ -28,6 +28,29 @@ Stop it (Ctrl+C) before deliberately reflashing a board -- it will otherwise
 race with `picotool load`, kicking the board back into the app before the
 flash tool gets to touch it.
 
+## update_tiles.sh and make_update_kit.sh
+
+For someone updating their own TILES without the toolchain:
+`tools/make_update_kit.sh` builds the firmware once per unit number
+(`firmware/build-unit1` .. `4`, via `cmake -DTILES_UNIT=N`) and zips
+`dist/TILES-update-<version>.zip`: those four `.uf2`s, `update_tiles.sh`,
+`tiles_control.py` and a README. On their Mac (needs `brew install
+picotool` and Python 3):
+
+```
+bash update_tiles.sh            # update every TILES plugged in
+bash update_tiles.sh --check    # only list chip ID, unit, firmware
+```
+
+Each board gets the build for its own unit, worked out from its chip ID
+(the four pre-production boards are listed in the script), else what the
+board reports (`unit=`, its USB name), else by asking. Running boards are
+sent to BOOTSEL one by one through the settings interface (old firmware
+without it: picotool's reset, with one board plugged in); boards already in
+BOOTSEL are flashed as they are, unknown ones only if given a unit number.
+Each is checked afterwards (`unit=` and `firmware=` from INFO). Settings and
+saved patterns survive.
+
 ## flash.sh
 
 Flashes a board that's running the app -- no BOOTSEL button:
@@ -85,6 +108,21 @@ worth knowing about:
   40 / 150, set from a recorded playing session). Raise `press_depth` if
   light harmonic touches get missed, lower it if chords leak harmonics;
   see `firmware/src/services/HISTORY.md` for the data behind the defaults.
+- `color.root` / `.fifth` / `.third` / `.note` / `.accidental` -- the
+  colour scheme for idle melodic pads (`RRGGBB` before the power ceiling,
+  or `none`); `color.custom_pads 1` plus `color.pad.01`...`24` paints
+  single pads. `reset color.root` brings back a default. See
+  `shared/protocol/README.md` ("Colour schemes and pad colours").
+
+**Custom scales** (firmware 0.2.7+), into the scale picker's 9 custom
+slots (pads 16-24), saved to flash before the `OK`:
+
+```
+~/.venvs/tiles-tools/bin/python tools/tiles_control.py scale put 1 Hirajoshi 0,2,3,7,8 pack=japan item=hirajoshi version=1
+~/.venvs/tiles-tools/bin/python tools/tiles_control.py scales          # what's on the device
+~/.venvs/tiles-tools/bin/python tools/tiles_control.py scale delete 1
+~/.venvs/tiles-tools/bin/python tools/tiles_control.py content list    # every record, with its pack
+```
 
 **Rebooting into the bootloader for flashing**, no BOOTSEL button --
 `flash.sh` (below) is the usual way now; this still works as a fallback:

@@ -2,9 +2,12 @@
 
 #include "board_pins.h"
 #include "pca9685.h"
+#include "power.h"
 
 #include "hardware/gpio.h"
 #include "pico/time.h"
+
+#include <math.h>
 
 #define NUM_BUTTONS 6u
 #define DEBOUNCE_MS 10u /* handoff scheduler_defaults: button_debounce_ms */
@@ -45,20 +48,59 @@ tiles_pca9685_t *tiles_buttons_pca9685_for_addr(uint8_t addr) {
     return NULL;
 }
 
-static void set_button_led(uint8_t index, bool lit) {
+/* What each LED's channel was last set to, so an unchanged level costs no
+ * I2C: modes redraw every LED every pass, and each write is 4 register
+ * transactions on the bus the Hall sensors and haptics share. Codes: PWM
+ * off_count 1-4094, or LED_CODE_DARK / LED_CODE_LIT; LED_CODE_UNKNOWN after
+ * the PCA9685s are (re)initialised. */
+#define LED_CODE_UNKNOWN (-1)
+#define LED_CODE_DARK 5000
+#define LED_CODE_LIT 5001
+static int16_t s_led_code[NUM_BUTTONS];
+
+/* The level each LED was last asked for (0..1, before the intensity), by
+ * whichever owner drew it, and the LED intensity (Feel menu row 4) applied
+ * on top: changing the intensity redraws every LED from these, without
+ * waiting for owners that only draw on change. */
+static float s_led_requested[NUM_BUTTONS];
+static float s_led_intensity = 1.0f;
+
+static void forget_led_codes(void) {
+    for (uint8_t i = 0; i < NUM_BUTTONS; i++) {
+        s_led_code[i] = LED_CODE_UNKNOWN;
+    }
+}
+
+static void write_led_full(uint8_t index, bool lit) {
     tiles_pca9685_t *pca = tiles_buttons_pca9685_for_addr(s_button_routes[index].pca9685_addr);
-    if (pca == NULL) {
+    int16_t code = lit ? LED_CODE_LIT : LED_CODE_DARK;
+    if (pca == NULL || s_led_code[index] == code) {
         return;
     }
     /* Active low: lit = pin low = "full off"; dark = pin high = "full on". */
-    tiles_pca9685_set_channel_full(pca, s_button_routes[index].pca9685_channel, !lit);
+    if (tiles_pca9685_set_channel_full(pca, s_button_routes[index].pca9685_channel, !lit)) {
+        s_led_code[index] = code;
+    } else {
+        s_led_code[index] = LED_CODE_UNKNOWN;
+    }
+}
+
+/* The button LEDs have no power ceiling of their own, and at full PWM they
+ * outshine the pads, which top out at the power mode's ceiling (50% on
+ * USB, 90% on 12 V; lighting.c). They follow the same ceiling, times
+ * BUTTON_LED_MATCH (a first guess: a small cap concentrates the light a
+ * pad spreads). */
+#define BUTTON_LED_MATCH 0.8f
+
+static float button_led_scale(void) {
+    return BUTTON_LED_MATCH * (float)tiles_power_get_state().led_brightness_ceiling_percent / 100.0f;
 }
 
 /* Smooth brightness via 12-bit PWM. With on_count=0, off_count is how long
  * the pin stays HIGH, and these LEDs are active low (high = dark), so
  * off_count = (1 - level) * 4095. Exact 0.0/1.0 use the full on/off bits,
  * avoiding the datasheet's on_count==off_count ambiguity. */
-static void set_button_led_level(uint8_t index, float level_0_to_1) {
+static void write_led_level(uint8_t index, float level_0_to_1) {
     tiles_pca9685_t *pca = tiles_buttons_pca9685_for_addr(s_button_routes[index].pca9685_addr);
     if (pca == NULL) {
         return;
@@ -69,16 +111,20 @@ static void set_button_led_level(uint8_t index, float level_0_to_1) {
     if (level_0_to_1 > 1.0f) {
         level_0_to_1 = 1.0f;
     }
+    level_0_to_1 *= button_led_scale();
 
-    uint8_t channel = s_button_routes[index].pca9685_channel;
+    /* 256 steps, even to the eye (in square-root space): fine at the dim
+     * end, where each step shows, coarse where it doesn't, and a slow pulse
+     * still changes the code (and writes) less often than every pass. */
+    float q = (float)(int)(sqrtf(level_0_to_1) * 255.0f + 0.5f) / 255.0f;
+    level_0_to_1 = q * q;
 
     if (level_0_to_1 <= 0.0f) {
-        /* Active low: dark = pin high = full_on=true. */
-        tiles_pca9685_set_channel_full(pca, channel, true); /* dark */
+        write_led_full(index, false); /* dark */
         return;
     }
     if (level_0_to_1 >= 1.0f) {
-        tiles_pca9685_set_channel_full(pca, channel, false); /* fully lit */
+        write_led_full(index, true); /* fully lit */
         return;
     }
 
@@ -89,7 +135,34 @@ static void set_button_led_level(uint8_t index, float level_0_to_1) {
     if (off_count > 4094u) {
         off_count = 4094u;
     }
-    tiles_pca9685_set_pwm(pca, channel, 0u, off_count);
+    if (s_led_code[index] == (int16_t)off_count) {
+        return;
+    }
+    uint8_t channel = s_button_routes[index].pca9685_channel;
+    s_led_code[index] = tiles_pca9685_set_pwm(pca, channel, 0u, off_count) ? (int16_t)off_count : LED_CODE_UNKNOWN;
+}
+
+/* Every LED change goes through these two: they remember the request and
+ * write it scaled by the LED intensity. */
+static void set_button_led_level(uint8_t index, float level_0_to_1) {
+    level_0_to_1 = level_0_to_1 < 0.0f ? 0.0f : (level_0_to_1 > 1.0f ? 1.0f : level_0_to_1);
+    s_led_requested[index] = level_0_to_1;
+    write_led_level(index, level_0_to_1 * s_led_intensity);
+}
+
+static void set_button_led(uint8_t index, bool lit) {
+    set_button_led_level(index, lit ? 1.0f : 0.0f);
+}
+
+void tiles_buttons_set_led_intensity(float intensity_0_to_1) {
+    intensity_0_to_1 = intensity_0_to_1 < 0.0f ? 0.0f : (intensity_0_to_1 > 1.0f ? 1.0f : intensity_0_to_1);
+    if (intensity_0_to_1 == s_led_intensity) {
+        return;
+    }
+    s_led_intensity = intensity_0_to_1;
+    for (uint8_t i = 0; i < NUM_BUTTONS; i++) {
+        write_led_level(i, s_led_requested[i] * s_led_intensity);
+    }
 }
 
 static void refresh_all_button_leds(void) {
@@ -107,14 +180,19 @@ void tiles_buttons_resync_pca9685(void) {
      * was already reported at init. */
     (void)tiles_pca9685_init(&s_pca1, i2c1, TILES_I2C1_ADDR_HAPTIC_PCA9685_1);
     (void)tiles_pca9685_init(&s_pca2, i2c1, TILES_I2C1_ADDR_HAPTIC_PCA9685_2);
-    /* Init set every channel "full off" (lit here): restore the default-mode
-     * LEDs now; override/standby LEDs repaint on their owners' next frame. */
+    forget_led_codes(); /* init changed every channel behind the cache */
+    /* Init set every channel "full off" (lit here): put every LED back as it
+     * was last asked for, then the default-mode ones from their buttons. */
+    for (uint8_t i = 0; i < NUM_BUTTONS; i++) {
+        write_led_level(i, s_led_requested[i] * s_led_intensity);
+    }
     refresh_all_button_leds();
 }
 
 bool tiles_buttons_init(void) {
     bool ok = tiles_pca9685_init(&s_pca1, i2c1, TILES_I2C1_ADDR_HAPTIC_PCA9685_1);
     ok = tiles_pca9685_init(&s_pca2, i2c1, TILES_I2C1_ADDR_HAPTIC_PCA9685_2) && ok;
+    forget_led_codes();
 
     /* Init set every channel "full off", which lights these active-low LEDs:
      * turn them dark. */

@@ -4,6 +4,7 @@ add_executable(sentia_tiles_firmware
     board/pad_config.c
     diagnostics/i2c_scan.c
     diagnostics/calibration.c
+    diagnostics/loop_stats.c
     drivers/sk6805.c
     drivers/tca9554.c
     drivers/tca9548a.c
@@ -32,6 +33,19 @@ add_executable(sentia_tiles_firmware
     services/expression_control.c
     services/midi_clock.c
     services/op_mode.c
+    services/drum_seq.c
+    services/harmony.c
+    services/harmony_core.c
+    services/bounce.c
+    services/bounce_core.c
+    services/physics.c
+    services/physics_core.c
+    services/strike_settle.c
+    services/rest_guard.c
+    services/seq_pattern.c
+    services/light_effects.c
+    services/play_state.c
+    services/drum_pattern.c
     services/debug_mode.c
     services/crash_indicator.c
     midi/usb_device.c
@@ -43,7 +57,9 @@ add_executable(sentia_tiles_firmware
     midi/din_midi.c
     midi/din_midi_queue.c
     storage/kv_store.c
+    storage/log_store.c
     storage/storage_flash.c
+    profiles/content.c
     profiles/settings.c
     profiles/settings_persist.c
     profiles/settings_table.c
@@ -97,5 +113,11 @@ pico_enable_stdio_uart(sentia_tiles_firmware 0)
 # reading costs at most 5 ms once, then prints are dropped. Paired with the
 # 1 KB CDC TX buffer in midi/tusb_config.h.
 target_compile_definitions(sentia_tiles_firmware PRIVATE PICO_STDIO_USB_STDOUT_TIMEOUT_US=5000)
+
+# cmake -DTILES_UNIT=N: a build for unit N (board/unit_id.h's default
+# otherwise; tools/make_update_kit.sh).
+if(DEFINED TILES_UNIT)
+    target_compile_definitions(sentia_tiles_firmware PRIVATE TILES_UNIT_NUMBER=${TILES_UNIT}u)
+endif()
 
 pico_add_extra_outputs(sentia_tiles_firmware)

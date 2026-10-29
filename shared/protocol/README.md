@@ -46,7 +46,18 @@ SAVE\n                    write unsaved changes to flash now: OK / ERR save-fail
 REBOOT BOOTSEL\n          reboot into the ROM bootloader for reflashing (no reply -- see below)
 REBOOT APP\n              plain warm restart back into this firmware: OK
 SCHEMA\n                  one line per setting describing it, then OK (see below)
-INFO\n                    unit=, firmware=, then flash-store status, as key=value lines, then OK
+INFO\n                    unit=, firmware=, power, settings-store and content-store status, as key=value lines, then OK
+SCALES\n                  every custom scale on the device, one line each, then OK (see "Custom scales")
+SCALE GET <slot>\n        one custom scale's line, then OK; or ERR bad-slot / empty
+SCALE PUT <slot> <name> <intervals> [pack=<id>] [item=<id>] [version=<n>]\n
+                          save a custom scale into slot 1-9 (saved before OK)
+SCALE DELETE <slot>\n     empty a slot: OK (also when already empty)
+CONTENT LIST\n            every record in the content store, one line each, then OK
+CONTENT CLEAR\n           wipe the content store (every custom scale): OK
+TEST LEDS <0-100>\n       bench only: every LED white at that % (current measurement)
+TEST MOTORS <n> [duty%]\n bench only: pads 1..n's motors for 8 s
+TEST MODE <name>\n        bench only: switch mode (melodic duet sequencer bass song ableton drums volca prism bounce ripples sand orbits cradle)
+TEST OFF\n                bench only: back to normal
 ```
 
 `SET`/`RESET` apply **immediately** and are saved to flash **automatically** ~2 s
@@ -57,16 +68,44 @@ Errors: `bad-value` = not parseable as the setting's type (`1.5x`, `true` for a
 bool); `out-of-range` = parsed but outside the setting's range, or an unknown
 enum name. A value never partially applies.
 
-No sequence IDs, no binary framing, no capability negotiation -- a
-command is answered by exactly the response(s) it produces, in order,
-before the next command is read (the device won't start the next command until
-the previous response has been fully sent). Good enough for occasional, human-
-or script-driven settings changes; genuinely insufficient for high-rate
-telemetry (live sensor streaming) or anything needing to stay correct
-under request/response interleaving -- both explicitly deferred to
-whatever protocol version eventually covers that. Replies can be long (SCHEMA is
-~3 KB) and arrive across several 64-byte USB packets: **read lines, not
-packets**.
+No binary framing, no capability negotiation -- a command is answered by
+exactly the response(s) it produces, in order, before the next command is
+read (the device won't start the next command until the previous response
+has been fully sent). Good enough for occasional, human- or script-driven
+settings changes; genuinely insufficient for high-rate telemetry (live sensor
+streaming), deferred to whatever protocol version eventually covers that.
+Replies can be long (SCHEMA is
+~5 KB; LIST, SCHEMA, SCALES and CONTENT LIST are streamed, so they have no
+size limit) and arrive across many 64-byte USB packets: **read lines, not
+packets**, and read until the final `OK` (or an `ERR` line).
+
+### Request tags (firmware 0.3.7+)
+
+A command may start with a tag, `@` plus 1-16 of `A-Z a-z 0-9 _ -`, and a
+space. Every line of its reply then starts with the same tag:
+
+```
+@7 GET pedal.mode\n      ->  @7 sustain
+@8 LIST\n                ->  @8 pedal.mode=sustain  ...  @8 OK
+@9\n                     ->  @9 ERR missing-command
+@a+b GET x\n             ->  ERR bad-tag   (untagged: the tag couldn't be read)
+```
+
+Untagged commands are answered untagged, exactly as before. Tags let a host
+match every line to its request and skip lines that aren't its answer --
+for instance the rest of a long reply that was still streaming when the
+previous app quit (the device can't tell the interface was released, so
+those lines wait for the next reader). Replies still come in command order;
+a host that reads from several places at once should still send one command
+at a time (the companion app queues them: `companion-app/src/main/usb.ts`).
+Firmware before 0.3.7 answers a tagged command `ERR unknown-command`,
+untagged; a host can fall back to plain commands on that.
+
+Don't write a batch of commands without reading: the device stops reading
+while a reply waits to be collected, so the write stalls and can time out
+partway through a line. From 0.3.8 a partial line (no newline yet) is
+dropped after 1 s with nothing arriving while the device waits for input,
+so a half-sent command can't glue itself onto the next one.
 
 ### REBOOT
 
@@ -96,8 +135,9 @@ id=513 key=expression.pitch_bend_sensitivity type=float min=0.001 max=1 default=
 id=514 key=expression.aftertouch_sensitivity type=uint min=1 max=65535 default=900
 id=768 key=cv_gate.enabled type=bool default=0 persist=0
 ```
-`type` is `bool|uint|int|float|enum`; `persist=0` marks a setting that is never
-saved (it boots at its default every time). `id` is permanent (what a future
+`type` is `bool|uint|int|float|enum|color`; `persist=0` marks a setting that is
+never saved (it boots at its default every time). A `color` line has no
+min/max: `id=1792 key=color.root type=color default=660066`. `id` is permanent (what a future
 binary protocol will use); `key` is the human name.
 
 ## Key catalog
@@ -124,23 +164,72 @@ refused, not clamped); the default is whatever the owning module boots with --
 | 0x0306 | `cv_gate.pressure.zero_trim_volts` | float | -2.5 - 2.5 | `0.0` | yes |
 | 0x0307 | `cv_gate.pressure.gain_trim` | float | 0.5 - 2.0 | `1.0` | yes |
 | 0x0400 | `look.idle_baseline_percent` | uint | 0 - 100 | `50` | yes |
-| 0x0401 | `look.natural_pad_percent` | uint | 0 - 100 | `21` | yes |
-| 0x0402 | `look.root_pad_percent` | uint | 0 - 100 | `40` | yes |
-| 0x0403 | `look.fifth_pad_percent` | uint | 0 - 100 | `40` | yes |
-| 0x0404 | `look.fifth_red_tint_percent` | uint | 0 - 100 | `35` | yes |
 | 0x0405 | `look.echo_sustain_tint_percent` | uint | 0 - 100 | `35` | yes |
 | 0x0406 | `look.echo_secondary_g_percent` | uint | 0 - 100 | `18` | yes |
 | 0x0407 | `look.echo_secondary_b_percent` | uint | 0 - 100 | `12` | yes |
 | 0x0408 | `look.echo_flash_ms` | uint | 0 - 2000 (0 = no flash) | `180` | yes |
+| 0x0409 | `look.pressure_hue_degrees` | uint | 0 - 90 (0 = off) | `40` | yes |
+| 0x040A | `look.bend_dim_percent` | uint | 0 - 90 (0 = off) | `50` | yes |
+| 0x040B | `look.led_intensity_percent` | uint | 0 - 100 (0 = off) | `100` | yes |
+| 0x040C | `look.play_effect` | enum | `off`, `afterglow`, `ripple`, `cross`, `halo`, `warmth`, `prism_ripple`, `touch_colour`, `heatmap`, `fireworks`, `rise`, `ink` (the light effect while playing; Feel menu, circle + square) | `off` | yes |
 | 0x0500 | `midi.din_trs_type` | enum | `a`, `b` (TRS polarity of DIN MIDI OUT) | `a` | yes |
+| 0x0501 | `midi.clock_lead_ms` | uint | 0 - 50 (ms early that pulses come through when following a DAW's clock, so the notes they trigger land on its grid; 0 = off) | `15` | yes |
+| 0x0502 | `midi.parts_port` | enum | `parts` (the sequencer, drums, Volca, Bouncing notes, Song tracks, chords and games on their own USB port, "Parts"), `main` (all on the MIDI port) | `parts` | yes |
 | 0x0600 | `features.melodic_harmonics` | bool | | `1` | yes |
 | 0x0601 | `features.harmonics.arm_ms` | uint | 0 - 1000 (ms a struck note is held alone before other touches may pluck) | `150` | yes |
 | 0x0602 | `features.harmonics.confirm_ms` | uint | 0 - 500 (ms a touch waits before plucking) | `40` | yes |
 | 0x0603 | `features.harmonics.press_depth` | uint | 1 - 1000 (Hall depth, rest 0 / strike 150, above which a touch counts as a real press, not a harmonic) | `128` | yes |
+| 0x0700 | `color.root` | color | `RRGGBB` or `none` | `660066` (Sentia pink) | yes |
+| 0x0701 | `color.third` | color | `RRGGBB` or `none` | `none` (no highlight) | yes |
+| 0x0702 | `color.fifth` | color | `RRGGBB` or `none` | `240066` (violet) | yes |
+| 0x0703 | `color.note` | color | `RRGGBB` or `none` | `363636` (dim white) | yes |
+| 0x0704 | `color.accidental` | color | `RRGGBB` or `none` | `000000` (dark) | yes |
+| 0x0705 | `color.custom_pads` | bool | | `0` | yes |
+| 0x0710 - 0x0727 | `color.pad.01` ... `color.pad.24` | color | `RRGGBB` or `none` | `none` | yes |
+| 0x0800 | `modes.duet` | bool | | `1` | yes |
+| 0x0801 | `modes.sequencer` | bool | | `1` | yes |
+| 0x0802 | `modes.drums` | bool | | `1` | yes |
+| 0x0803 | `modes.song` | bool | | `1` | yes |
+| 0x0804 | `modes.prism` | bool | | `1` | yes |
+| 0x0805 | `modes.bass` | bool | | `1` | yes |
+| 0x0806 | `modes.ableton` | bool | | `1` | yes |
+| 0x0807 | `modes.volca` | bool | | `1` | yes |
+| 0x0808 | `modes.bounce` | bool | | `1` | yes |
+| 0x0809 | `modes.cradle` | bool | | `1` | yes |
+| 0x080A | `modes.sand` | bool | | `1` | yes |
+| 0x080B | `modes.ripples` | bool | | `1` | yes |
+| 0x080C | `modes.orbits` | bool | | `1` | yes |
+| 0x0900 | `layout.melodic` | enum | `rows` (the default), `columns`, `fourths`, `keys`, `fifths`, `tonnetz`, `quarter_tones` (melodic mode's note layout; Feel menu, circle + triangle; firmware/src/services/note_map.h) | `rows` | yes |
+| 0x0A00 | `seq.lock` | enum | `off`, `bar`: a sequencer lane or the drums started while others play joins on the next step at the step it would be on had it played from the song's top, and stays there (16-step patterns share the bar line). No hardware gesture (firmware/src/services/op_mode.h) | `off` | yes |
+
+Ids `0x0401`-`0x0404` (`look.natural_pad_percent`, `look.root_pad_percent`,
+`look.fifth_pad_percent`, `look.fifth_red_tint_percent`) were retired in
+firmware 0.2.7: the colour scheme below replaced them, with the same look as
+its default. A saved value for one of them is ignored.
 
 The `look.*` values are whole percent of the **fixed** LED brightness ceiling
 (50% USB-only / 90% external power) -- no setting can raise the ceiling itself.
-See `firmware/src/services/lighting.h` for what each tier is.
+See `firmware/src/services/lighting.h` for what each tier is. Two act on
+touched pads in every mode: `look.pressure_hue_degrees` turns a pad's colour
+toward Sentia blue (#94ABF9) by up to that many degrees at full pressure (white
+tints partway toward it instead), brightness unchanged, with MPE on only; `look.bend_dim_percent`
+is how much a bending pad's brightness falls at full bend (a smooth swell).
+`look.led_intensity_percent` scales the pads, underglow and button LEDs below the ceiling
+(the Feel menu's row 4 sets 0, 4, 16, 36, 64 or 100; 0 = off).
+
+`modes.*` add or remove modes from the mode menu (triangle), for the companion
+app: `0` takes the pad off the menu (dark, can't be picked), `1` puts it back.
+Melodic is always there; turning off the mode in use switches to melodic.
+`modes.duet` is the chord + melody mode, `modes.prism` the chord machine,
+`modes.bounce` Bouncing notes, `modes.cradle` Newton's cradle, and
+`modes.sand`, `modes.ripples`, `modes.orbits` the other physics modes. The
+menu itself is laid out by family, one column each: melodic / Duet / bass
+(magenta, pink, lilac), sequencers (sequencer scarlet, drums orange, Song
+amber), Prism (blue), hardware (Ableton teal, Volca cyan), then two columns of
+physical modelling and experimental modes, each in the colour of what it
+models: Bouncing notes (lime), Newton's cradle (steel), Sand (sand); Ripples
+(water), Orbits (night sky). A mode's underglow and resting pads are always
+its menu colour.
 
 `cv_gate.enabled` being true here does **not** mean CV/gate is actually
 driving anything -- `services/power.h`'s own external-power confirmation
@@ -149,7 +238,131 @@ override, by design (see `services/cv_gate.h`'s own header comment).
 
 Ids are permanent: never reuse or renumber one. Grouped by hundreds (`0x01xx`
 pedal, `0x02xx` expression, `0x03xx` CV/gate, `0x04xx` look, `0x05xx` MIDI,
-`0x06xx` features).
+`0x06xx` features, `0x07xx` colours).
+
+### Colour schemes and pad colours
+
+What melodic mode's idle pads look like (and chord mode's melody grid), by
+the role of each pad's note in the current key and scale. Five colours make a
+scheme; the app owns the schemes (names, presets, sharing) and writes the
+five values to apply one:
+
+| Role | Key | Lights | Default |
+|---|---|---|---|
+| Root | `color.root` | the key's root, every octave | `660066`, Sentia pink |
+| Fifth | `color.fifth` | the perfect fifth (7 semitones) | `240066`, violet |
+| Third | `color.third` | the scale's major third (4) if it has one, else its minor third (3) | `none` |
+| Accidental | `color.accidental` | a sharp/flat pitch class (the "black keys"); mostly matters in chromatic | `000000`, dark |
+| Note | `color.note` | every other scale note | `363636`, dim white |
+
+- A pad with several roles takes the first in that order: root, fifth,
+  third, accidental, note.
+- `none` turns a role off: its pads fall through to the next role that
+  applies (`color.third` defaults to `none`, so thirds show as notes).
+- Values are what the pad shows **before** the power ceiling (50% on USB,
+  90% on external power), so brightness is in the value: `363636` is a dim
+  white, `FFFFFF` full. The ceiling still applies on top; no setting can
+  raise it.
+- Pressed pads (white), the echo after a note, and Song capture still draw
+  over the scheme.
+- Defaults are the device's original look: `RESET color.root` (or `RESET
+  ALL`) brings a role back.
+
+**Custom pad colours** (an advanced feature): set `color.custom_pads` to `1`
+and any of `color.pad.01`...`color.pad.24` to a colour, and that pad shows
+it in melodic mode instead of its role colour. Pads left at `none` keep the
+scheme. Pad numbers are TILES' logical pads (1-24, top-left to bottom-right,
+the same numbers as everywhere else in this protocol). Chord mode keeps the
+scheme: its grid is laid out differently. Turning `color.custom_pads` off
+keeps the per-pad values, so the user can switch back.
+
+Writing a whole scheme is 5 `SET`s (a full pad map, 25); they apply at once
+and are saved together ~2 s after the last one.
+
+### Custom scales
+
+The scale picker (pads 16-24 while choosing a scale) has 9 custom slots.
+An empty slot is unavailable on the device; a filled one lights and plays
+like a built-in scale (root and fifth colouring included). The app pushes
+scales into slots and can pull back everything on the device.
+
+```
+SCALE PUT 1 Hirajoshi 0,2,3,7,8 pack=japan item=hirajoshi version=1
+OK
+SCALES
+1 Hirajoshi 0,2,3,7,8 pack=japan item=hirajoshi version=1
+4 My_Blues 0,3,5,6,7,10 version=0
+OK
+```
+
+- `<slot>`: 1-9 (picker pads 16-24, in order).
+- `<name>`: 1-16 printable ASCII characters, no spaces (show `_` as a
+  space if you like).
+- `<intervals>`: semitones above the root, comma-separated: 1-12 of them,
+  starting at `0`, strictly increasing, each 0-11. The root comes from the
+  device's key, as for built-in scales.
+- `pack=`, `item=` (each 0-16 characters, no spaces) say which pack and which
+  item in it the scale came from; leave them out for a user-made scale.
+  `version=` (0-65535, default 0) is the item's version, so the app can tell
+  an outdated copy. All three are stored and listed, never interpreted by
+  the device (see `docs/architecture/content-packs.md`).
+- A `SCALES` line is exactly a `SCALE PUT`'s arguments, so a pulled scale
+  pushes back unchanged. Empty slots aren't listed.
+- `PUT` replaces whatever was in the slot. It and `DELETE` are written to
+  flash **before** the reply (the write pauses the device for tens of ms, so
+  don't send them mid-phrase): `OK` means saved.
+- Errors: `bad-slot`, `bad-name` (name/pack/item empty where required, too
+  long, or with a space/control character), `bad-intervals`, `bad-field`
+  (an unknown `key=` or a bad version), `content-full`, `no-storage`,
+  `newer-format` (see below), `save-failed-<why>`. On any error nothing
+  changes.
+
+Built-in scales aren't listed: they're fixed per firmware version (pads
+1-15 of the picker, `SCALE_GRID_ORDER` in `firmware/src/services/note_map.c`).
+
+### Content store
+
+Custom scales live in the **content store**: its own two-sector flash region
+next to the settings, power-cut safe the same way, ~4 KB (all nine scales at
+their largest take ~0.6 KB). It is built to hold more kinds of content
+later (layouts, and data for modes and games) without a format change, which
+is why `CONTENT LIST` names each record's type:
+
+```
+CONTENT LIST
+scale 1 bytes=34 version=1 pack=japan item=hirajoshi
+scale 4 bytes=20 version=0
+OK
+```
+
+A record of a type this firmware doesn't know (written by a newer one) is
+kept and listed as `type<N> <slot> bytes=<n>`, never applied. If the whole
+store was written by a newer firmware's format, it's read-only
+(`newer-format` on every change, `content.storage=newer-format` in INFO)
+until `CONTENT CLEAR`, so a downgrade can't silently destroy it.
+`CONTENT CLEAR` erases every custom scale; settings are separate and
+untouched (`RESET ALL` is theirs).
+
+### INFO
+
+`key=value` lines, then `OK`: `unit=2/4`, `firmware=alpha.4` or `alpha.4.1` (stage.build[.point]; product_identity.h), `settings=<n>`,
+`power=usb_only|external_only|usb_and_external|fault` and its
+`power.budget_ma`, `power.led_ceiling_percent`, `power.haptic_voices`; the
+settings store's `store.*` (loaded, restored, slot, seq, saved_bytes, writes,
+last_result, pending, failures); the content store's
+`content.storage=ok|none|newer-format`, `content.scales=<n>/9`,
+`content.records`, `content.bytes=<used>/<capacity>`, `content.writes`,
+`content.last_result`; main-loop timing `loop.avg_us`, `loop.max_us` (last
+second) and `loop.max_ever_us`; sensor health `hall.rezeros`,
+`hall.unconfirmed`, `hall.reinits`, `hall.dead`, `touch.recoveries`; the
+sequencer's autosave `seq.storage`, `seq.saved_bytes`, `seq.saves`,
+`seq.pending`, `seq.truncated`; boot timing `boot.ms` (power-on to the main loop) and
+`boot.sensors_ms`; drum mode's store `drums.storage`,
+`drums.saved_bytes`, `drums.saves`, `drums.pending`; the play state (mode,
+scale, key, octave kept across power cycles) `state.storage`,
+`state.saved=mode:<n> scale:<n> octave:<n> key:<n>` (once something is
+saved), `state.saves`, `state.pending`. New keys may be added;
+ignore ones you don't know.
 
 ## Persistence
 
@@ -158,13 +371,16 @@ sectors, CRC-protected, power-cut safe) and restored at boot, **sparsely**: only
 values that differ from their default are written, so a setting you never
 touched follows the firmware's default if a later build changes it. They
 survive reboots and firmware updates (`picotool load` doesn't touch that
-region). Design and rules: `firmware/src/profiles/README.md`.
+region). Design and rules: `firmware/src/profiles/README.md`. The content
+store (custom scales) is a second, separate region with the same guarantees
+(`firmware/src/profiles/content.h`).
 
 ## Testing
 
 `../../tools/tiles_control.py` -- a plain Python script (`pyusb`) that
 connects to the vendor interface and exercises every command above
-(`list`, `schema`, `get`, `set`, `reset`, `save`, `info`). See that script's own
+(`list`, `schema`, `get`, `set`, `reset`, `save`, `info`, `scales`, `scale
+get|put|delete`, `content list|clear`, `test`). See that script's own
 header for setup (on macOS, `pyusb` needs `libusb` installed, and vendor-class
 devices sometimes need the terminal running it to have been granted the OS's own
 USB-device permission prompt the first time).
@@ -294,7 +510,8 @@ bundled Remote Script source or the community AbletonOSC project.
 
 Everything `docs/protocol/README.md`'s own design notes list beyond
 settings: pad remap, guided calibration capture, live sensor streaming,
-profile read/write, firmware update, and the real framing/versioning/
+profile read/write, firmware update, layouts and paid packs
+(`docs/architecture/content-packs.md` is the plan), and the real framing/versioning/
 schema decisions those need. This document's own scope will need
 revisiting, not just extending, once any of those get designed --
 they're likely to need actual binary framing and sequencing this
