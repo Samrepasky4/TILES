@@ -18,6 +18,8 @@ let controlInterface: number | null = null
 let controlIn: number | null = null
 let controlOut: number | null = null
 let receiveBuffer = ''
+let nextTag = 1
+let tagsSupported = true
 
 // Only allow one TILES request/response transaction at a time.
 let commandQueue: Promise<void> = Promise.resolve()
@@ -82,6 +84,7 @@ export async function connectUsbDevice(
   controlOut = out.endpointNumber
   controlIn = input.endpointNumber
   receiveBuffer = ''
+  tagsSupported = true
 
   console.log('TILES ready:', {
     interface: controlInterface,
@@ -187,6 +190,7 @@ export function sendTilesCommand(
  *
  * Called only from the command queue.
  */
+
 async function sendTilesCommandNow(
   command: string,
   multiLine = false,
@@ -195,39 +199,55 @@ async function sendTilesCommandNow(
     throw new Error('TILES is not connected')
   }
 
-  console.log(`→ TILES: ${command}`)
+  const tag = tagsSupported ? `@${nextTag} ` : ''
+  nextTag = nextTag >= 99999 ? 1 : nextTag + 1
+
+  console.log(`→ TILES: ${tag}${command}`)
 
   const write = await activeDevice.transferOut(
     controlOut,
-    new TextEncoder().encode(`${command}\n`),
+    new TextEncoder().encode(`${tag}${command}\n`),
   )
 
   if (write.status !== 'ok') {
-    throw new Error(
-      `USB write failed: ${write.status}`,
-    )
+    throw new Error(`USB write failed: ${write.status}`)
   }
 
   const lines: string[] = []
 
   while (true) {
-    const line = await readLine()
+    const raw = await readLine()
+    console.log(`← TILES: ${raw}`)
 
-    console.log(`← TILES: ${line}`)
+    let line = raw
 
-    // Multiline responses end with OK.
+    if (tag) {
+      if (!raw.startsWith(tag)) {
+        // Older firmware does not recognize tagged commands.
+        if (raw === 'ERR unknown-command' && lines.length === 0) {
+          tagsSupported = false
+          return sendTilesCommandNow(command, multiLine)
+        }
+
+        // Ignore responses belonging to an earlier request.
+        continue
+      }
+
+      line = raw.slice(tag.length)
+    }
+
     if (multiLine && line === 'OK') {
       return lines
     }
 
     lines.push(line)
 
-    // Single-line response or error ends the transaction.
     if (!multiLine || line.startsWith('ERR ')) {
       return lines
     }
   }
 }
+
 
 function hex(value: number) {
   return `0x${value.toString(16).padStart(4, '0')}`
