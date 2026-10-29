@@ -1,7 +1,9 @@
-import { BrowserWindow, app, ipcMain } from "electron";
-import { dirname, join } from "node:path";
+import { BrowserWindow, app, dialog, ipcMain } from "electron";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { usb } from "usb";
+import { readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 //#region src/main/usb.ts
 var activeDevice = null;
 var controlInterface = null;
@@ -1046,6 +1048,99 @@ async function mockCommand(command, _multiLine = false) {
 	}
 	return ["ERR unsupported-command"];
 }
+var record = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var text = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max;
+var limitedText = (v, max) => typeof v === "string" && v.length <= max;
+function isValidScale(value) {
+	if (!record(value) || typeof value.slot !== "number" || !Number.isInteger(value.slot) || Number(value.slot) < 1 || Number(value.slot) > 9 || !text(value.name, 16) || !/^[!-~]+$/.test(value.name) || !Array.isArray(value.intervals) || value.intervals.length < 1 || value.intervals.length > 12) return false;
+	const intervals = value.intervals;
+	return intervals.every((n, i) => Number.isInteger(n) && n >= 0 && n < 12 && (i === 0 ? n === 0 : n > intervals[i - 1]));
+}
+function validateProject(value) {
+	if (!record(value) || value.format !== "sentia.tiles-project" || value.version !== 1 || !text(value.id, 100) || !text(value.name, 100) || !text(value.createdAt, 40) || !text(value.updatedAt, 40) || !text(value.selectedPresetId, 100) || !Array.isArray(value.presets) || value.presets.length < 1 || value.presets.length > 128) throw new Error("Invalid or unsupported .tilesproject file (requires format version 1).");
+	const ids = /* @__PURE__ */ new Set();
+	for (const preset of value.presets) {
+		if (!record(preset) || !text(preset.id, 100) || !text(preset.name, 100) || !limitedText(preset.description, 1e3) || !record(preset.settings) || !Array.isArray(preset.scales) || preset.scales.length > 9 || !(preset.previewScaleSlot === null || typeof preset.previewScaleSlot === "number" && Number.isInteger(preset.previewScaleSlot) && Number(preset.previewScaleSlot) >= 1 && Number(preset.previewScaleSlot) <= 9)) throw new Error("Project contains an invalid preset.");
+		if (ids.has(preset.id)) throw new Error("Duplicate preset IDs.");
+		ids.add(preset.id);
+		const settings = Object.entries(preset.settings);
+		if (settings.length > 256 || !settings.every(([key, val]) => /^[a-z][a-z0-9_.]{0,99}$/.test(key) && typeof val === "string" && val.length <= 100 && !/[\r\n]/.test(val))) throw new Error("Preset has invalid settings.");
+		if (!preset.scales.every(isValidScale) || new Set(preset.scales.map((s) => s.slot)).size !== preset.scales.length) throw new Error("Preset contains an invalid custom scale.");
+	}
+	if (!ids.has(value.selectedPresetId)) throw new Error("Project-selected preset does not exist.");
+	return value;
+}
+function serializeProject(project) {
+	validateProject(project);
+	return JSON.stringify(project, null, 2) + "\n";
+}
+//#endregion
+//#region src/main/projectFiles.ts
+var MAX_BYTES = 2097152;
+var currentFile = null;
+function registerProjectIpc(getWindow) {
+	ipcMain.handle("project:open", async () => {
+		const parent = getWindow();
+		const options = {
+			title: "Open TILES Project",
+			properties: ["openFile"],
+			filters: [{
+				name: "TILES Project",
+				extensions: ["tiles", "tilesproject"]
+			}]
+		};
+		const choice = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+		const path = choice.filePaths[0];
+		if (choice.canceled || !path) return null;
+		if (!/\.(tiles|tilesproject)$/i.test(path)) throw new Error("Choose a .tiles or .tilesproject file.");
+		const raw = await readFile(path, "utf8");
+		if (Buffer.byteLength(raw, "utf8") > MAX_BYTES) throw new Error("Project exceeds 2 MB.");
+		const project = validateProject(JSON.parse(raw));
+		currentFile = path;
+		return {
+			project,
+			fileName: basename(path)
+		};
+	});
+	ipcMain.handle("project:save", async (_event, value, saveAs) => {
+		const project = validateProject(value);
+		const raw = serializeProject(project);
+		if (Buffer.byteLength(raw, "utf8") > MAX_BYTES) throw new Error("Project exceeds 2 MB.");
+		let path = saveAs ? null : currentFile;
+		if (!path) {
+			const parent = getWindow();
+			const options = {
+				title: "Save TILES Project",
+				defaultPath: `${project.name.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "Untitled"}.tiles`,
+				filters: [{
+					name: "TILES Project",
+					extensions: ["tiles"]
+				}]
+			};
+			const choice = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+			if (choice.canceled || !choice.filePath) return null;
+			path = choice.filePath.toLowerCase().endsWith(".tiles") ? choice.filePath : `${choice.filePath}.tiles`;
+		}
+		const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+		try {
+			await writeFile(temporary, raw, {
+				encoding: "utf8",
+				flag: "wx"
+			});
+			await rename(temporary, path);
+		} catch (error) {
+			const { unlink } = await import("node:fs/promises");
+			await unlink(temporary).catch(() => void 0);
+			throw error;
+		}
+		currentFile = path;
+		return { fileName: basename(path) };
+	});
+	ipcMain.handle("project:new", () => {
+		currentFile = null;
+		return true;
+	});
+}
 //#endregion
 //#region src/main/index.ts
 var __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1069,6 +1164,7 @@ async function sendUsbList() {
 	mainWindow?.webContents.send("usb:changed", devices);
 }
 app.whenReady().then(() => {
+	registerProjectIpc(() => mainWindow);
 	ipcMain.handle("usb:list", async () => {
 		if (isMock) return [mockDevice];
 		return listUsbDevices();

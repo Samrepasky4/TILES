@@ -4,6 +4,7 @@ import {  fileURLToPath,} from 'node:url'
 import { usb } from 'usb'
 import { connectUsbDevice, disconnectUsbDevice, listUsbDevices, sendTilesCommand,} from './usb'
 import { mockCommand, mockDevice } from './mockUsb'
+import { registerProjectIpc } from './projectFiles'
 
 
 
@@ -53,6 +54,7 @@ async function sendUsbList() {
 }
 
 app.whenReady().then(() => {
+  registerProjectIpc(() => mainWindow)
   ipcMain.handle(
     'usb:list',
     async () => {
