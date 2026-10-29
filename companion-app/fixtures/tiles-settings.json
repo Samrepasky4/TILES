@@ -736,5 +736,40 @@
         "bar"
       ]
     }
-  ]
+  ],
+  "scales": {
+    "_comment": "SCALES output (custom slots 1-9; empty slots aren't listed). Example data, not from a board.",
+    "slots": 9,
+    "items": [
+      {
+        "slot": 1,
+        "name": "Hirajoshi",
+        "intervals": [
+          0,
+          2,
+          3,
+          7,
+          8
+        ],
+        "pack": "japan",
+        "item": "hirajoshi",
+        "version": 1
+      },
+      {
+        "slot": 4,
+        "name": "My_Blues",
+        "intervals": [
+          0,
+          3,
+          5,
+          6,
+          7,
+          10
+        ],
+        "pack": "",
+        "item": "",
+        "version": 0
+      }
+    ]
+  }
 }
